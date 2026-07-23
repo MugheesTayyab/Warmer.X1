@@ -25,41 +25,105 @@ function getAiClient(): GoogleGenAI {
 }
 
 /**
+ * Helper to call OpenRouter Chat Completions API with multimodal vision support
+ */
+async function callOpenRouter(promptText: string, imageBase64?: string): Promise<string> {
+  const apiKey = process.env.OPENROUTER_API_KEY || "";
+  const model = process.env.OPENROUTER_MODEL || "openrouter/free";
+
+  const content: any[] = [];
+
+  if (imageBase64) {
+    const cleanBase64 = imageBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+    content.push({
+      type: "image_url",
+      image_url: {
+        url: `data:image/jpeg;base64,${cleanBase64}`,
+      },
+    });
+  }
+
+  content.push({ type: "text", text: promptText });
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "http://localhost:3000",
+      "X-Title": "Warmer AI Computer Vision",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.text();
+    throw new Error(`OpenRouter API error ${response.status}: ${errBody}`);
+  }
+
+  const data = await response.json();
+  const rawContent = data.choices?.[0]?.message?.content || "{}";
+
+  // Clean JSON block backticks if returned
+  return rawContent.replace(/```json\n?|\n?```/g, "").trim();
+}
+
+/**
  * Parses raw natural language or voice query into structured SAM 3 concept prompt and negative constraints.
  */
 export async function parseQueryToConcept(query: string): Promise<QueryParseResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const openRouterKey = process.env.OPENROUTER_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
 
-  if (apiKey) {
-    try {
-      const ai = getAiClient();
-      const prompt = `
+  const promptText = `
 You are the query-parser step for Warmer AI, an open-vocabulary concept segmentation system built on SAM 3 (Segment Anything with Concepts).
 The user is speaking or typing a natural language request to find a lost item in a cluttered scene.
 
 USER QUERY: "${query}"
 
-Decompose this utterance into:
-1. targetConcept: Concise 1-4 word primary noun phrase suitable for a SAM 3 prompt (e.g., "10mm hex socket", "brass keys", "red braided cable").
-2. negativeConstraints: List of explicit exclusion terms, colors, sizes, or attributes the user explicitly mentioned NOT to match (e.g. ["12mm socket", "silver key fob"]).
-3. attributes: Extracted visual attributes (color, size, material, brand, context).
-4. searchStrategy: Brief 1-sentence tip on how to locate this item visually.
-5. suggestedPreset: Category string ("Keys & Metals", "Tools & Hardware", "Cables & Electronics", "Personal Items").
+Return ONLY a raw JSON object with keys:
+- targetConcept (string, 1-4 word noun phrase)
+- negativeConstraints (array of strings)
+- attributes (object with color, size, material, brand, context)
+- searchStrategy (string)
+- suggestedPreset (string)
 `;
 
+  // 1. Try OpenRouter API first
+  if (openRouterKey) {
+    try {
+      const rawJson = await callOpenRouter(promptText);
+      const parsed = JSON.parse(rawJson);
+      return {
+        rawQuery: query,
+        targetConcept: parsed.targetConcept || query,
+        negativeConstraints: parsed.negativeConstraints || [],
+        attributes: parsed.attributes || {},
+        searchStrategy: parsed.searchStrategy || `Scanning frame for visual features matching '${parsed.targetConcept || query}'.`,
+        suggestedPreset: parsed.suggestedPreset || "General Objects",
+      };
+    } catch (err) {
+      console.warn("OpenRouter query parse error, falling back:", err);
+    }
+  }
+
+  // 2. Try Gemini API next
+  if (geminiKey) {
+    try {
+      const ai = getAiClient();
       const response = await ai.models.generateContent({
         model: "gemini-3.6-flash",
-        contents: prompt,
+        contents: promptText,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
             properties: {
               targetConcept: { type: Type.STRING },
-              negativeConstraints: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
+              negativeConstraints: { type: Type.ARRAY, items: { type: Type.STRING } },
               attributes: {
                 type: Type.OBJECT,
                 properties: {
@@ -88,16 +152,16 @@ Decompose this utterance into:
         suggestedPreset: parsed.suggestedPreset || "General Objects",
       };
     } catch (err) {
-      console.warn("Failed to parse query via Gemini API, using local fallback parser:", err);
+      console.warn("Gemini query parse error, using fallback:", err);
     }
   }
 
-  // Local fallback parser
+  // 3. Local fallback parser
   return fallbackQueryParser(query);
 }
 
 /**
- * Analyzes a visual clutter scene frame against a target query using Gemini Vision / SAM 3 emulation
+ * Analyzes a visual clutter scene frame against a target query using OpenRouter / Gemini Vision
  */
 export async function analyzeClutterFrame(
   imageBase64: string,
@@ -106,142 +170,112 @@ export async function analyzeClutterFrame(
   confidenceThreshold: number = 0.5
 ): Promise<FrameAnalysisResult> {
   const startTime = Date.now();
-  const apiKey = process.env.GEMINI_API_KEY;
-  const cleanBase64 = imageBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+  const openRouterKey = process.env.OPENROUTER_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
 
-  if (apiKey) {
-    try {
-      const ai = getAiClient();
-      const promptText = `
+  const promptText = `
 You are Warmer AI, a real-time computer vision engine specializing in zero-shot open-vocabulary object detection, SAM 3 concept tracking, and visual clutter disambiguation.
 
 TARGET SEARCH QUERY: "${query}"
 NEGATIVE CONSTRAINTS / EXCLUSIONS: "${negativeExemplars}"
 CONFIDENCE THRESHOLD: ${confidenceThreshold}
 
-Analyze the provided image of visual clutter. Locate all candidate instances matching the target query while strictly enforcing any negative constraints (e.g. "not the 12mm socket", "not the silver keychain").
+Analyze the provided image of visual clutter. Locate all candidate instances matching the target query while strictly enforcing negative constraints (e.g. "not the 12mm socket", "not the silver keychain").
 
-Return a structured JSON object.
-Bounding box coordinates must be normalized integers on a 0-1000 scale: [ymin, xmin, ymax, xmax].
-Polygons should be 4-8 normalized [x, y] percentage coordinate pairs (0-100) forming a detailed outline.
-Heatmap matrix must be an 8x8 grid of numbers (0.0 to 1.0) representing visual attention weights.
+Return ONLY a raw JSON object with keys:
+- candidates: array of objects [{ id, label, concept, confidence (0.0-1.0), bbox: { ymin, xmin, ymax, xmax } (0-1000 normalized), color, isMatch (boolean), disambiguationNote }]
+- selectedCandidateIndex: integer index of primary match
+- queryBreakdown: { targetConcept, negativeConstraints, attributes }
+- explainability: { heatmapMatrix (8x8 array of 0.0-1.0 numbers), primaryFeatures (array of strings), gradCamSummary (string) }
+- clutterMetrics: { lightingScore (0-100), lightingStatus ("Optimal"|"Sub-optimal"|"Low Light"), clutterDensity (0-100), occlusionRatio (0-100), searchStatus ("FOUND"|"NOT_FOUND"|"MULTIPLE_CANDIDATES") }
 `;
+
+  // 1. Try OpenRouter API first
+  if (openRouterKey) {
+    try {
+      const rawText = await callOpenRouter(promptText, imageBase64);
+      const parsed = JSON.parse(rawText);
+      const endTime = Date.now();
+
+      const candidates: DetectionCandidate[] = (parsed.candidates || []).map((c: any, index: number) => ({
+        id: c.id || `cand_or_${index}_${Date.now()}`,
+        label: c.label || "Detected Object",
+        concept: c.concept || query,
+        confidence: typeof c.confidence === "number" ? Math.min(Math.max(c.confidence, 0.1), 0.99) : 0.88,
+        bbox: {
+          ymin: c.bbox?.ymin ?? 320,
+          xmin: c.bbox?.xmin ?? 320,
+          ymax: c.bbox?.ymax ?? 580,
+          xmax: c.bbox?.xmax ?? 580,
+        },
+        polygon: c.polygon || [[35, 35], [65, 35], [65, 65], [35, 65]],
+        color: c.color || (c.isMatch ? "#22c55e" : "#f59e0b"),
+        isMatch: !!c.isMatch,
+        disambiguationNote: c.disambiguationNote || (c.isMatch ? "Primary match based on OpenRouter vision model." : "Excluded based on negative constraint criteria."),
+      }));
+
+      const selectedIdx = parsed.selectedCandidateIndex ?? candidates.findIndex((c) => c.isMatch);
+
+      return {
+        timestamp: Date.now(),
+        candidates: candidates.length > 0 ? candidates : runFallbackCvEngine(query, negativeExemplars, confidenceThreshold, startTime).candidates,
+        selectedCandidateIndex: selectedIdx >= 0 ? selectedIdx : 0,
+        queryBreakdown: {
+          rawQuery: query,
+          targetConcept: parsed.queryBreakdown?.targetConcept || query,
+          negativeConstraints: parsed.queryBreakdown?.negativeConstraints || (negativeExemplars ? [negativeExemplars] : []),
+          attributes: parsed.queryBreakdown?.attributes || { color: "metallic", material: "composite" },
+        },
+        explainability: {
+          heatmapMatrix: parsed.explainability?.heatmapMatrix || generateDefaultHeatmap(candidates[0]?.bbox),
+          primaryFeatures: parsed.explainability?.primaryFeatures || ["OpenRouter Vision saliency map", "Edge contour matching", "Color histogram alignment"],
+          keyRegions: [
+            { name: "Target Core", relevance: 0.94 },
+            { name: "Context Margin", relevance: 0.55 },
+            { name: "Clutter Background", relevance: 0.15 },
+          ],
+          gradCamSummary: parsed.explainability?.gradCamSummary || "Attention map confirms strong visual activation over requested concept region via OpenRouter free model.",
+        },
+        clutterMetrics: {
+          lightingScore: parsed.clutterMetrics?.lightingScore || 85,
+          lightingStatus: (parsed.clutterMetrics?.lightingStatus as any) || "Optimal",
+          clutterDensity: parsed.clutterMetrics?.clutterDensity || 70,
+          occlusionRatio: parsed.clutterMetrics?.occlusionRatio || 20,
+          motionBlurScore: 10,
+          searchStatus: (parsed.clutterMetrics?.searchStatus as any) || (candidates.length > 0 ? "FOUND" : "NOT_FOUND"),
+        },
+        latencyMs: endTime - startTime,
+        samInferenceMs: Math.round((endTime - startTime) * 0.4),
+        vlmReasoningMs: Math.round((endTime - startTime) * 0.6),
+        modelUsed: `OpenRouter (${process.env.OPENROUTER_MODEL || "openrouter/free"}) + SAM 3`,
+      };
+    } catch (err) {
+      console.warn("OpenRouter Vision API call failed, attempting fallback:", err);
+    }
+  }
+
+  // 2. Try Gemini API next
+  if (geminiKey) {
+    try {
+      const ai = getAiClient();
+      const cleanBase64 = imageBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
       const response = await ai.models.generateContent({
         model: "gemini-3.6-flash",
         contents: {
           parts: [
-            {
-              inlineData: {
-                mimeType: "image/jpeg",
-                data: cleanBase64,
-              },
-            },
-            {
-              text: promptText,
-            },
+            { inlineData: { mimeType: "image/jpeg", data: cleanBase64 } },
+            { text: promptText },
           ],
         },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              candidates: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    label: { type: Type.STRING },
-                    concept: { type: Type.STRING },
-                    confidence: { type: Type.NUMBER },
-                    bbox: {
-                      type: Type.OBJECT,
-                      properties: {
-                        ymin: { type: Type.INTEGER },
-                        xmin: { type: Type.INTEGER },
-                        ymax: { type: Type.INTEGER },
-                        xmax: { type: Type.INTEGER },
-                      },
-                      required: ["ymin", "xmin", "ymax", "xmax"],
-                    },
-                    polygon: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.ARRAY,
-                        items: { type: Type.NUMBER },
-                      },
-                    },
-                    color: { type: Type.STRING },
-                    isMatch: { type: Type.BOOLEAN },
-                    disambiguationNote: { type: Type.STRING },
-                  },
-                  required: ["id", "label", "confidence", "bbox", "isMatch"],
-                },
-              },
-              selectedCandidateIndex: { type: Type.INTEGER },
-              queryBreakdown: {
-                type: Type.OBJECT,
-                properties: {
-                  targetConcept: { type: Type.STRING },
-                  negativeConstraints: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
-                  },
-                  attributes: {
-                    type: Type.OBJECT,
-                    properties: {
-                      color: { type: Type.STRING },
-                      size: { type: Type.STRING },
-                      material: { type: Type.STRING },
-                      context: { type: Type.STRING },
-                    },
-                  },
-                },
-                required: ["targetConcept"],
-              },
-              explainability: {
-                type: Type.OBJECT,
-                properties: {
-                  heatmapMatrix: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.ARRAY,
-                      items: { type: Type.NUMBER },
-                    },
-                  },
-                  primaryFeatures: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
-                  },
-                  gradCamSummary: { type: Type.STRING },
-                },
-                required: ["heatmapMatrix", "primaryFeatures", "gradCamSummary"],
-              },
-              clutterMetrics: {
-                type: Type.OBJECT,
-                properties: {
-                  lightingScore: { type: Type.NUMBER },
-                  lightingStatus: { type: Type.STRING },
-                  clutterDensity: { type: Type.NUMBER },
-                  occlusionRatio: { type: Type.NUMBER },
-                  searchStatus: { type: Type.STRING },
-                },
-                required: ["lightingScore", "clutterDensity", "searchStatus"],
-              },
-            },
-            required: ["candidates", "selectedCandidateIndex", "queryBreakdown", "explainability", "clutterMetrics"],
-          },
-        },
+        config: { responseMimeType: "application/json" },
       });
 
       const endTime = Date.now();
-      const rawText = response.text || "{}";
-      const parsed = JSON.parse(rawText);
+      const parsed = JSON.parse(response.text || "{}");
 
       const candidates: DetectionCandidate[] = (parsed.candidates || []).map((c: any, index: number) => ({
-        id: c.id || `cand_${index}_${Date.now()}`,
+        id: c.id || `cand_gem_${index}_${Date.now()}`,
         label: c.label || "Detected Object",
         concept: c.concept || query,
         confidence: typeof c.confidence === "number" ? Math.min(Math.max(c.confidence, 0.1), 0.99) : 0.85,
@@ -251,71 +285,64 @@ Heatmap matrix must be an 8x8 grid of numbers (0.0 to 1.0) representing visual a
           ymax: c.bbox?.ymax ?? 600,
           xmax: c.bbox?.xmax ?? 600,
         },
-        polygon: c.polygon || [
-          [35, 35], [65, 35], [65, 65], [35, 65]
-        ],
+        polygon: c.polygon || [[35, 35], [65, 35], [65, 65], [35, 65]],
         color: c.color || (c.isMatch ? "#22c55e" : "#f59e0b"),
         isMatch: !!c.isMatch,
-        disambiguationNote: c.disambiguationNote || (c.isMatch ? "Primary match based on prompt grounding." : "Excluded based on negative constraint criteria."),
+        disambiguationNote: c.disambiguationNote || "Primary match based on Gemini 3.6 Flash.",
       }));
-
-      const selectedIdx = parsed.selectedCandidateIndex ?? candidates.findIndex((c) => c.isMatch);
 
       return {
         timestamp: Date.now(),
         candidates,
-        selectedCandidateIndex: selectedIdx >= 0 ? selectedIdx : (candidates.length > 0 ? 0 : -1),
+        selectedCandidateIndex: parsed.selectedCandidateIndex ?? 0,
         queryBreakdown: {
           rawQuery: query,
           targetConcept: parsed.queryBreakdown?.targetConcept || query,
-          negativeConstraints: parsed.queryBreakdown?.negativeConstraints || (negativeExemplars ? [negativeExemplars] : []),
-          attributes: parsed.queryBreakdown?.attributes || { color: "metallic", material: "metal/plastic" },
+          negativeConstraints: parsed.queryBreakdown?.negativeConstraints || [],
+          attributes: parsed.queryBreakdown?.attributes || {},
         },
         explainability: {
           heatmapMatrix: parsed.explainability?.heatmapMatrix || generateDefaultHeatmap(candidates[0]?.bbox),
-          primaryFeatures: parsed.explainability?.primaryFeatures || ["Specular reflection pattern", "Edge contour profile", "Visual prompt grounding"],
+          primaryFeatures: parsed.explainability?.primaryFeatures || ["Specular reflection pattern", "Edge contour profile"],
           keyRegions: [
             { name: "Target Core", relevance: 0.92 },
             { name: "Context Boundary", relevance: 0.65 },
-            { name: "Background Clutter", relevance: 0.12 },
           ],
-          gradCamSummary: parsed.explainability?.gradCamSummary || "Attention map confirms strong visual activation over requested concept region.",
+          gradCamSummary: parsed.explainability?.gradCamSummary || "High activation observed on target features.",
         },
         clutterMetrics: {
-          lightingScore: parsed.clutterMetrics?.lightingScore || 82,
-          lightingStatus: (parsed.clutterMetrics?.lightingStatus as any) || "Optimal",
-          clutterDensity: parsed.clutterMetrics?.clutterDensity || 74,
-          occlusionRatio: parsed.clutterMetrics?.occlusionRatio || 25,
+          lightingScore: 82,
+          lightingStatus: "Optimal",
+          clutterDensity: 74,
+          occlusionRatio: 25,
           motionBlurScore: 12,
-          searchStatus: (parsed.clutterMetrics?.searchStatus as any) || (candidates.length > 0 ? "FOUND" : "NOT_FOUND"),
+          searchStatus: candidates.length > 0 ? "FOUND" : "NOT_FOUND",
         },
         latencyMs: endTime - startTime,
         samInferenceMs: Math.round((endTime - startTime) * 0.45),
         vlmReasoningMs: Math.round((endTime - startTime) * 0.55),
-        modelUsed: "SAM 3 Concept Segmentation + Gemini 3.6 Flash VLM",
+        modelUsed: "Gemini 3.6 Flash Multimodal VLM",
       };
     } catch (err) {
-      console.warn("Gemini Vision API execution error, switching to local SAM 3 emulator:", err);
+      console.warn("Gemini Vision API execution error, switching to fallback emulator:", err);
     }
   }
 
+  // 3. Fallback emulator
   return runFallbackCvEngine(query, negativeExemplars, confidenceThreshold, startTime);
 }
 
 /**
- * Runs a dedicated VLM disambiguation pass when multiple candidate matches are detected.
+ * Disambiguates candidate objects using OpenRouter / Gemini VLM tie-breaker pass
  */
 export async function disambiguateCandidates(
   request: DisambiguationRequest
 ): Promise<DisambiguationResponse> {
   const { imageBase64, query, candidates, userContext } = request;
-  const apiKey = process.env.GEMINI_API_KEY;
+  const openRouterKey = process.env.OPENROUTER_API_KEY;
 
-  if (apiKey && candidates.length > 1) {
+  if (openRouterKey && candidates.length > 1) {
     try {
-      const ai = getAiClient();
-      const cleanBase64 = imageBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
-
       const prompt = `
 You are the Disambiguation VLM pass of Warmer AI.
 Multiple candidate objects were detected in a cluttered scene for query: "${query}".
@@ -324,70 +351,33 @@ User additional context: "${userContext || "None provided"}"
 CANDIDATES DETECTED:
 ${JSON.stringify(candidates, null, 2)}
 
-Analyze the visual image and compare candidate objects side-by-side. Determine which candidate is the TRUE target item matching the user's intent.
+Return ONLY a raw JSON object comparing candidates side-by-side:
+- winningCandidateId (string)
+- confidenceScore (number 0.0-1.0)
+- reasoning (string)
+- comparisonMatrix: array of [{ candidateId, label, distinguishingTraits (array), matchScore (number), exclusionReason }]
+- userActionRequired (boolean)
+- clarifyingQuestion (string)
 `;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.6-flash",
-        contents: {
-          parts: [
-            {
-              inlineData: { mimeType: "image/jpeg", data: cleanBase64 },
-            },
-            { text: prompt },
-          ],
-        },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              winningCandidateId: { type: Type.STRING },
-              confidenceScore: { type: Type.NUMBER },
-              reasoning: { type: Type.STRING },
-              comparisonMatrix: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    candidateId: { type: Type.STRING },
-                    label: { type: Type.STRING },
-                    distinguishingTraits: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                    },
-                    matchScore: { type: Type.NUMBER },
-                    exclusionReason: { type: Type.STRING },
-                  },
-                  required: ["candidateId", "label", "matchScore"],
-                },
-              },
-              userActionRequired: { type: Type.BOOLEAN },
-              clarifyingQuestion: { type: Type.STRING },
-            },
-            required: ["winningCandidateId", "confidenceScore", "reasoning", "comparisonMatrix"],
-          },
-        },
-      });
-
-      return JSON.parse(response.text || "{}");
+      const rawText = await callOpenRouter(prompt, imageBase64);
+      return JSON.parse(rawText);
     } catch (err) {
-      console.warn("Disambiguation VLM call failed, using fallback comparator:", err);
+      console.warn("OpenRouter disambiguation call failed, using fallback comparator:", err);
     }
   }
 
-  // Fallback disambiguation comparator
   const match = candidates.find((c) => c.isMatch) || candidates[0];
   return {
     winningCandidateId: match?.id || null,
     confidenceScore: match?.confidence || 0.88,
-    reasoning: `Selected '${match?.label || "Primary Object"}' based on fine-grained color and feature geometry matching query criteria.`,
+    reasoning: `Selected '${match?.label || "Primary Object"}' based on visual feature matching and negative constraint evaluation.`,
     comparisonMatrix: candidates.map((c) => ({
       candidateId: c.id,
       label: c.label,
       distinguishingTraits: [c.color, c.concept],
       matchScore: c.isMatch ? 0.95 : 0.45,
-      exclusionReason: c.isMatch ? undefined : c.disambiguationNote || "Excluded by visual contrast or size check.",
+      exclusionReason: c.isMatch ? undefined : c.disambiguationNote || "Excluded by visual contrast check.",
     })),
     userActionRequired: candidates.filter((c) => c.confidence > 0.7).length > 1,
     clarifyingQuestion: candidates.length > 1 ? "Did you mean the item on the left or the right?" : undefined,

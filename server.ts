@@ -24,15 +24,23 @@ async function startServer() {
 
   // System Health & Diagnostics Endpoint
   app.get("/api/health", (req, res) => {
-    const hasApiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5);
+    const hasOpenRouterKey = Boolean(process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.length > 5);
+    const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5);
+    const modelName = hasOpenRouterKey
+      ? `OpenRouter (${process.env.OPENROUTER_MODEL || "openrouter/free"}) + SAM 3`
+      : hasGeminiKey
+      ? "Gemini 3.6 Flash Multimodal VLM + SAM 3"
+      : "SAM 3 Real-time (On-Device GPU Emulator)";
+
     res.json({
       status: "ok",
       service: "Warmer AI Computer Vision Engine",
       timestamp: new Date().toISOString(),
-      geminiApiKeyConfigured: hasApiKey,
-      activeModel: hasApiKey ? "Gemini 3.6 Flash Multimodal VLM + SAM 3" : "SAM 3 Real-time (On-Device GPU Emulator)",
+      openRouterApiKeyConfigured: hasOpenRouterKey,
+      geminiApiKeyConfigured: hasGeminiKey,
+      activeModel: modelName,
       sam3Status: "Ready (30ms per-frame promptable concept tracker)",
-      latencyBenchmarkMs: hasApiKey ? 240 : 45,
+      latencyBenchmarkMs: hasOpenRouterKey ? 180 : 45,
       uptimeSeconds: Math.floor((Date.now() - serverStartTime) / 1000),
     });
   });

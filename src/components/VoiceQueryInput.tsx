@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Mic, MicOff, Search, Sparkles, Filter, X, Volume2 } from 'lucide-react';
+import { Mic, MicOff, Search, Sparkles, Filter, X, Zap } from 'lucide-react';
 import { audioEngine } from '../lib/audioEngine';
+import { QueryParseResult } from '../types';
 
 interface VoiceQueryInputProps {
   query: string;
@@ -21,6 +22,8 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
 }) => {
   const [isListening, setIsListening] = useState(false);
   const [showNegative, setShowNegative] = useState(false);
+  const [parsedInfo, setParsedInfo] = useState<QueryParseResult | null>(null);
+  const [isParsingQuery, setIsParsingQuery] = useState(false);
 
   const presets = [
     { label: 'KEYS_BRASS', text: 'find my brass keys, not my roommate silver keychain' },
@@ -29,6 +32,30 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
     { label: 'INHALER_RED', text: 'find my daughter red asthma inhaler in couch cushions' },
     { label: 'WALLET_LEATHER', text: 'find my black leather wallet under the mail' },
   ];
+
+  // Call /api/parse-query whenever query is submitted or updated
+  const triggerQueryParser = async (rawQuery: string) => {
+    if (!rawQuery || rawQuery.trim().length < 3) return;
+    setIsParsingQuery(true);
+    try {
+      const res = await fetch('/api/parse-query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: rawQuery }),
+      });
+      if (res.ok) {
+        const data: QueryParseResult = await res.json();
+        setParsedInfo(data);
+        if (data.negativeConstraints.length > 0 && !negativeExemplars) {
+          setNegativeExemplars(data.negativeConstraints.join(', '));
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to call /api/parse-query:', err);
+    } finally {
+      setIsParsingQuery(false);
+    }
+  };
 
   // Speech Recognition setup
   useEffect(() => {
@@ -52,6 +79,7 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
 
     recognition.onend = () => {
       setIsListening(false);
+      triggerQueryParser(query);
     };
 
     if (isListening) {
@@ -65,7 +93,7 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
         recognition.stop();
       } catch (e) {}
     };
-  }, [isListening, setQuery]);
+  }, [isListening, query, setQuery]);
 
   const toggleMic = () => {
     if (isListening) {
@@ -78,12 +106,18 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
 
   const handlePresetSelect = (presetText: string) => {
     setQuery(presetText);
+    triggerQueryParser(presetText);
     if (presetText.includes('not the')) {
       const parts = presetText.split('not the');
       if (parts.length > 1) {
         setNegativeExemplars(`not the ${parts[1].trim()}`);
       }
     }
+  };
+
+  const handleTriggerScan = () => {
+    triggerQueryParser(query);
+    onAnalyzeTrigger();
   };
 
   return (
@@ -93,8 +127,9 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
           <span className="w-1.5 h-1.5 bg-cyan-400"></span>
           <span>Target Query Parameter Input</span>
         </span>
-        <span className="font-mono text-[10px] text-zinc-500 uppercase">
-          NLP_ENCODER // PROMPT_MATRIX
+        <span className="font-mono text-[10px] text-zinc-500 uppercase flex items-center gap-2">
+          {isParsingQuery && <span className="text-amber-400 animate-pulse">PARSING_SAM3_PROMPT...</span>}
+          <span>NLP_ENCODER // PROMPT_MATRIX</span>
         </span>
       </div>
 
@@ -134,7 +169,8 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && onAnalyzeTrigger()}
+            onKeyDown={(e) => e.key === 'Enter' && handleTriggerScan()}
+            onBlur={() => triggerQueryParser(query)}
             placeholder="TYPE_QUERY: 'find my brass keys, not my roommate silver keychain'..."
             className="w-full pl-10 pr-28 py-3 bg-zinc-950 border border-zinc-800 text-cyan-300 placeholder-zinc-600 text-xs focus:outline-none focus:border-cyan-400 font-mono transition"
           />
@@ -161,7 +197,7 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
         <button
           id="btn-trigger-sam-scan"
           type="button"
-          onClick={onAnalyzeTrigger}
+          onClick={handleTriggerScan}
           disabled={isAnalyzing}
           className="w-full md:w-auto px-6 py-3 bg-cyan-400 hover:bg-cyan-300 text-black font-extrabold font-mono text-xs uppercase tracking-widest flex items-center justify-center space-x-2 shadow-[0_0_20px_rgba(34,211,238,0.25)] disabled:opacity-50 transition active:scale-95"
         >
@@ -178,6 +214,23 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
           )}
         </button>
       </div>
+
+      {/* Parsed Concept Decomposition Badge */}
+      {parsedInfo && (
+        <div className="mt-2.5 px-3 py-2 bg-zinc-950/80 border border-cyan-900/60 rounded text-[11px] font-mono text-zinc-300 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center space-x-2">
+            <Zap className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="text-cyan-400 font-bold uppercase">SAM 3 Concept:</span>
+            <span className="text-white font-semibold">"{parsedInfo.targetConcept}"</span>
+            {parsedInfo.attributes?.color && (
+              <span className="px-1.5 py-0.5 bg-zinc-800 text-zinc-300 text-[9px] uppercase border border-zinc-700">
+                {parsedInfo.attributes.color}
+              </span>
+            )}
+          </div>
+          <span className="text-zinc-500 text-[10px] italic">{parsedInfo.searchStrategy}</span>
+        </div>
+      )}
 
       {/* Optional Negative Constraint Input */}
       {(showNegative || negativeExemplars) && (

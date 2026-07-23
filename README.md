@@ -9,11 +9,14 @@ An intelligent, real-time computer vision dashboard powered by Google Gemini 2.0
 ## Key Features
 
 - 📹 **Real-time Video Feed & Bounding Box Overlays**: Live webcam canvas rendering with normalized spatial coordinates.
-- 🤖 **Gemini 2.0 Vision Integration**: Multimodal object detection, clutter analysis, and prompt grounding.
-- 🎙️ **Voice Query Input**: Hands-free natural language queries using Web Speech API synthesis.
+- ⚡ **Temporal Motion Stability Gate**: On-device optical motion variance tracking with hands-free auto-scan triggering.
+- 🧠 **Spatial Memory Persistence**: Remembers candidate locations across camera sweeps, rendering "LAST SEEN HERE" ghost trails.
+- 🧭 **Directional Vector Navigation**: Real-time cardinal navigation prompts ("Move camera top-left, 85% aligned").
+- 🤖 **OpenRouter Multimodal Integration**: Open-vocabulary concept segmentation powered by free OpenRouter vision models.
+- 🎙️ **Voice Query Input & Speech Feedback**: Hands-free natural language queries and spoken audio guidance.
+- 📸 **Annotated Vision Snapshot Exporter**: One-tap download of high-res image captures with burned-in reticles and AI reasoning.
 - 🔍 **Disambiguation Panel**: Interactive resolution for overlapping or low-confidence detection targets.
-- 💡 **Explainability Breakdown**: Deep insight into confidence scoring and visual spatial reasoning.
-- 📁 **Project Export & Offline Testing**: Zip archive generation and pre-packaged sample scenes.
+- 💡 **Explainability Breakdown**: Deep insight into confidence scoring, heatmaps, and spatial reasoning.
 
 ## Tech Stack
 

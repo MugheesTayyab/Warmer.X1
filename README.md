@@ -19,7 +19,7 @@ An intelligent, real-time computer vision dashboard powered by Google Gemini 2.0
 
 - **Frontend**: React 19, TypeScript, Tailwind CSS, Lucide React, Motion
 - **Backend**: Express.js, TypeScript (tsx runtime), JSZip
-- **AI Services**: Google Gen AI SDK (`@google/genai`), Gemini 2.0 Flash
+- **AI Services**: OpenRouter Multimodal API (`openrouter/free`), Google Gen AI SDK (`@google/genai`), Gemini 2.0 Flash
 
 ## Run Locally
 
@@ -29,9 +29,10 @@ An intelligent, real-time computer vision dashboard powered by Google Gemini 2.0
    ```bash
    npm install
    ```
-2. Set your `GEMINI_API_KEY` in `.env`:
+2. Configure `.env` with your OpenRouter API key:
    ```env
-   GEMINI_API_KEY=your_gemini_api_key_here
+   OPENROUTER_API_KEY="sk-or-v1-your-openrouter-key-here"
+   OPENROUTER_MODEL="openrouter/free"
    ```
 3. Run the application:
    ```bash

@@ -95,3 +95,52 @@ export interface FailureCase {
   systemMitigation: string;
   lessonLearned: string;
 }
+
+export interface QueryParseResult {
+  rawQuery: string;
+  targetConcept: string;
+  negativeConstraints: string[];
+  attributes: {
+    color?: string;
+    size?: string;
+    material?: string;
+    brand?: string;
+    context?: string;
+  };
+  searchStrategy: string;
+  suggestedPreset?: string;
+}
+
+export interface DisambiguationRequest {
+  imageBase64: string;
+  query: string;
+  candidates: DetectionCandidate[];
+  userContext?: string;
+}
+
+export interface DisambiguationResponse {
+  winningCandidateId: string | null;
+  confidenceScore: number;
+  reasoning: string;
+  comparisonMatrix: {
+    candidateId: string;
+    label: string;
+    distinguishingTraits: string[];
+    matchScore: number;
+    exclusionReason?: string;
+  }[];
+  userActionRequired: boolean;
+  clarifyingQuestion?: string;
+}
+
+export interface BackendHealthStatus {
+  status: 'ok' | 'degraded' | 'error';
+  service: string;
+  timestamp: string;
+  geminiApiKeyConfigured: boolean;
+  activeModel: string;
+  sam3Status: string;
+  latencyBenchmarkMs: number;
+  uptimeSeconds: number;
+}
+

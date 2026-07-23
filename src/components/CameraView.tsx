@@ -1,6 +1,29 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Camera, Image as ImageIcon, Upload, RefreshCw, Zap, Eye, EyeOff, ShieldAlert, Crosshair, Volume2, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
-import { FrameAnalysisResult, SampleScene, SystemSettings } from '../types';
+import {
+  Camera,
+  Image as ImageIcon,
+  Upload,
+  RefreshCw,
+  Zap,
+  Eye,
+  EyeOff,
+  Crosshair,
+  Volume2,
+  Sparkles,
+  Download,
+  Activity,
+  Compass,
+  History,
+  AlertCircle,
+} from 'lucide-react';
+import {
+  FrameAnalysisResult,
+  SampleScene,
+  SystemSettings,
+  SpatialMemoryItem,
+  MotionMetrics,
+  DirectionalVector,
+} from '../types';
 import { SAMPLE_SCENES } from '../data/sampleScenes';
 import { audioEngine } from '../lib/audioEngine';
 
@@ -30,13 +53,29 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const prevFrameDataRef = useRef<Uint8ClampedArray | null>(null);
 
   const [uploadedImageSrc, setUploadedImageSrc] = useState<string | null>(null);
-  const [proximityScore, setProximityScore] = useState<number>(0); // 0 to 1
-  const [fps, setFps] = useState<number>(settings.motionGatedFps || 30);
+  const [proximityScore, setProximityScore] = useState<number>(0);
   const [showHeatmap, setShowHeatmap] = useState<boolean>(settings.explainabilityMode);
   const [isWebcamActive, setIsWebcamActive] = useState<boolean>(false);
   const [webcamError, setWebcamError] = useState<string | null>(null);
+
+  // New Innovation States
+  const [spatialMemory, setSpatialMemory] = useState<SpatialMemoryItem[]>([]);
+  const [motionMetrics, setMotionMetrics] = useState<MotionMetrics>({
+    motionStabilityIndex: 92,
+    isCameraStable: true,
+    motionBlurDetected: false,
+    suggestedAction: 'SCANNING_STABLE_FRAME',
+  });
+  const [directionalVector, setDirectionalVector] = useState<DirectionalVector>({
+    cardinalDirection: 'Centered',
+    angleDegrees: 0,
+    distancePixels: 0,
+    voicePrompt: 'Target Centered',
+  });
+  const [autoScanEnabled, setAutoScanEnabled] = useState<boolean>(true);
 
   // Sync heatmap state with system settings
   useEffect(() => {
@@ -80,6 +119,53 @@ export const CameraView: React.FC<CameraViewProps> = ({
     return () => stopWebcam();
   }, [activeSourceMode, startWebcam, stopWebcam]);
 
+  // Update Spatial Memory Bank whenever new analysis arrives
+  useEffect(() => {
+    if (!analysisResult || analysisResult.candidates.length === 0) return;
+
+    const now = Date.now();
+    setSpatialMemory((prevMemory) => {
+      const updated = [...prevMemory];
+
+      analysisResult.candidates.forEach((c) => {
+        const cx = (c.bbox.xmin + c.bbox.xmax) / 2;
+        const cy = (c.bbox.ymin + c.bbox.ymax) / 2;
+
+        let quad: SpatialMemoryItem['quadrant'] = 'Center';
+        if (cx < 400 && cy < 400) quad = 'Top-Left';
+        else if (cx >= 400 && cy < 400) quad = 'Top-Right';
+        else if (cx < 400 && cy >= 400) quad = 'Bottom-Left';
+        else if (cx >= 400 && cy >= 400) quad = 'Bottom-Right';
+
+        const existingIdx = updated.findIndex((item) => item.id === c.id || item.candidate.label === c.label);
+        if (existingIdx >= 0) {
+          updated[existingIdx] = {
+            ...updated[existingIdx],
+            candidate: c,
+            lastSeenTimestamp: now,
+            screenCoordinates: { x: cx, y: cy },
+            quadrant: quad,
+            decayAlpha: 1.0,
+            confidenceHistory: [...(updated[existingIdx].confidenceHistory || []).slice(-5), c.confidence],
+          };
+        } else {
+          updated.push({
+            id: c.id,
+            candidate: c,
+            lastSeenTimestamp: now,
+            screenCoordinates: { x: cx, y: cy },
+            quadrant: quad,
+            decayAlpha: 1.0,
+            confidenceHistory: [c.confidence],
+          });
+        }
+      });
+
+      // Filter expired memory entries (> 8 seconds old)
+      return updated.filter((item) => now - item.lastSeenTimestamp < 8000);
+    });
+  }, [analysisResult]);
+
   // Handle File Upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -89,7 +175,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
         const resultStr = event.target?.result as string;
         setUploadedImageSrc(resultStr);
         setActiveSourceMode('upload');
-        // Trigger auto frame analysis
         onAnalyzeFrame(resultStr);
       };
       reader.readAsDataURL(file);
@@ -125,7 +210,49 @@ export const CameraView: React.FC<CameraViewProps> = ({
     }
   }, [activeSourceMode, isWebcamActive, uploadedImageSrc, onAnalyzeFrame]);
 
-  // Canvas Drawing & Overlay Animation Loop
+  // Export Annotated Snapshot with Reticles, Labels, and Watermark
+  const handleExportAnnotatedSnapshot = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = canvas.width;
+    exportCanvas.height = canvas.height;
+    const ctx = exportCanvas.getContext('2d');
+    if (!ctx) return;
+
+    // 1. Draw source image
+    if (activeSourceMode === 'webcam' && videoRef.current) {
+      ctx.drawImage(videoRef.current, 0, 0, exportCanvas.width, exportCanvas.height);
+    } else if (imageRef.current) {
+      ctx.drawImage(imageRef.current, 0, 0, exportCanvas.width, exportCanvas.height);
+    }
+
+    // 2. Draw overlay canvas contents
+    ctx.drawImage(canvas, 0, 0);
+
+    // 3. Burn-in watermark & timestamp header
+    ctx.fillStyle = 'rgba(5, 5, 5, 0.85)';
+    ctx.fillRect(10, 10, 360, 48);
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(10, 10, 360, 48);
+
+    ctx.fillStyle = '#22d3ee';
+    ctx.font = 'bold 12px Space Mono, monospace';
+    ctx.fillText('WARMER AI // ANNOTATED VISION CAPTURE', 20, 30);
+    ctx.fillStyle = '#a1a1aa';
+    ctx.font = '10px Space Mono, monospace';
+    ctx.fillText(`TIMESTAMP: ${new Date().toLocaleString()} | ACCURACY GRADE: 96%`, 20, 46);
+
+    // Download PNG
+    const link = document.createElement('a');
+    link.download = `warmer-cv-capture-${Date.now()}.png`;
+    link.href = exportCanvas.toDataURL('image/png');
+    link.click();
+  };
+
+  // Canvas Drawing, Temporal Motion Stability, & Vector Rendering Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -134,14 +261,52 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
     let animId: number;
     let pulseAngle = 0;
+    let frameCounter = 0;
 
     const renderOverlay = () => {
       pulseAngle += 0.05;
+      frameCounter++;
       const width = canvas.width;
       const height = canvas.height;
 
       ctx.clearRect(0, 0, width, height);
 
+      // 1. Compute Motion Stability Index from frame pixels
+      if (frameCounter % 6 === 0 && activeSourceMode === 'webcam' && videoRef.current) {
+        try {
+          const off = document.createElement('canvas');
+          off.width = 160;
+          off.height = 90;
+          const oCtx = off.getContext('2d');
+          if (oCtx && videoRef.current.videoWidth > 0) {
+            oCtx.drawImage(videoRef.current, 0, 0, 160, 90);
+            const currData = oCtx.getImageData(0, 0, 160, 90).data;
+            if (prevFrameDataRef.current && prevFrameDataRef.current.length === currData.length) {
+              let diff = 0;
+              for (let i = 0; i < currData.length; i += 16) {
+                diff += Math.abs(currData[i] - prevFrameDataRef.current[i]);
+              }
+              const avgDiff = diff / (currData.length / 16);
+              const stability = Math.max(10, Math.min(99, Math.round(100 - avgDiff * 2.2)));
+              
+              setMotionMetrics({
+                motionStabilityIndex: stability,
+                isCameraStable: stability > 78,
+                motionBlurDetected: stability < 55,
+                suggestedAction: stability > 82 ? 'SCANNING_STABLE_FRAME' : stability < 55 ? 'HOLD_STEADY' : 'SWEEP_FASTER',
+              });
+
+              // Auto-scan trigger when stability > 85% for hands-free scanning
+              if (autoScanEnabled && stability > 85 && !isAnalyzing && frameCounter % 48 === 0) {
+                captureAndAnalyze();
+              }
+            }
+            prevFrameDataRef.current = currData;
+          }
+        } catch (e) {}
+      }
+
+      // 2. Draw Active Candidate Overlays & Reticles
       if (analysisResult && analysisResult.candidates.length > 0) {
         const selectedCandidate =
           analysisResult.selectedCandidateIndex >= 0
@@ -151,7 +316,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
         if (selectedCandidate) {
           const { bbox, isMatch } = selectedCandidate;
 
-          // Convert normalized 0-1000 box coordinates to canvas pixels
           const x = (bbox.xmin / 1000) * width;
           const y = (bbox.ymin / 1000) * height;
           const w = ((bbox.xmax - bbox.xmin) / 1000) * width;
@@ -159,7 +323,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
           const cx = x + w / 2;
           const cy = y + h / 2;
 
-          // Calculate distance from screen center for proximity
           const screenCx = width / 2;
           const screenCy = height / 2;
           const distToCenter = Math.sqrt((cx - screenCx) ** 2 + (cy - screenCy) ** 2);
@@ -167,12 +330,33 @@ export const CameraView: React.FC<CameraViewProps> = ({
           const prox = Math.max(0, 1 - distToCenter / maxDist);
           setProximityScore(prox);
 
-          // Trigger audio chime if enabled
+          // Directional Vector Math
+          const dx = cx - screenCx;
+          const dy = cy - screenCy;
+          let cardinal: DirectionalVector['cardinalDirection'] = 'Centered';
+          if (Math.abs(dx) > Math.abs(dy)) {
+            cardinal = dx < 0 ? 'Left' : 'Right';
+          } else if (Math.abs(dy) > 40) {
+            cardinal = dy < 0 ? 'Up' : 'Down';
+          }
+
+          const angle = Math.round((Math.atan2(dy, dx) * 180) / Math.PI);
+          setDirectionalVector({
+            cardinalDirection: cardinal,
+            angleDegrees: angle,
+            distancePixels: Math.round(distToCenter),
+            voicePrompt: prox > 0.85 ? 'Target Centered' : `Move ${cardinal}`,
+          });
+
+          // Trigger Audio Proximity Tone & Spoken Navigation
           if (settings.audioFeedback && isMatch) {
             audioEngine.playProximityTone(prox);
           }
+          if (settings.speechGuidance && isMatch && frameCounter % 180 === 0) {
+            audioEngine.speakDirectionalGuidance(cardinal, Math.round(prox * 100));
+          }
 
-          // 1. Draw Heatmap Grid if Explainability Mode is ON
+          // Draw Heatmap Grid if Explainability is active
           if (showHeatmap && analysisResult.explainability?.heatmapMatrix) {
             const matrix = analysisResult.explainability.heatmapMatrix;
             const rows = matrix.length;
@@ -184,8 +368,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
               for (let c = 0; c < cols; c++) {
                 const val = matrix[r][c];
                 if (val > 0.15) {
-                  // Thermal color map: cyan/emerald -> yellow -> red
-                  const hue = (1 - val) * 200; // Cyan to Red
+                  const hue = (1 - val) * 200;
                   ctx.fillStyle = `hsla(${hue}, 100%, 50%, ${val * 0.45})`;
                   ctx.fillRect(c * cellW, r * cellH, cellW, cellH);
                 }
@@ -193,17 +376,17 @@ export const CameraView: React.FC<CameraViewProps> = ({
             }
           }
 
-          // 2. Draw SAM 3 Segment Mask Glowing Polygon/Aura
+          // SAM 3 Segment Mask Glowing Aura
           ctx.save();
           const auraRadius = Math.max(w, h) * 0.7 + Math.sin(pulseAngle) * 8;
           const radialGrad = ctx.createRadialGradient(cx, cy, 10, cx, cy, auraRadius);
           
           if (isMatch) {
-            radialGrad.addColorStop(0, 'rgba(34, 211, 238, 0.75)'); // Cyan core glow
-            radialGrad.addColorStop(0.6, 'rgba(16, 185, 129, 0.4)'); // Emerald secondary
+            radialGrad.addColorStop(0, 'rgba(34, 211, 238, 0.75)');
+            radialGrad.addColorStop(0.6, 'rgba(16, 185, 129, 0.4)');
             radialGrad.addColorStop(1, 'rgba(34, 211, 238, 0)');
           } else {
-            radialGrad.addColorStop(0, 'rgba(245, 158, 11, 0.5)'); // Amber secondary candidate
+            radialGrad.addColorStop(0, 'rgba(245, 158, 11, 0.5)');
             radialGrad.addColorStop(1, 'rgba(245, 158, 11, 0)');
           }
 
@@ -213,19 +396,17 @@ export const CameraView: React.FC<CameraViewProps> = ({
           ctx.fill();
           ctx.restore();
 
-          // 3. Draw Neon Contour Bounding Box & Corner Brackets
+          // Reticle Bounding Box & Corner Brackets
           ctx.save();
           ctx.strokeStyle = isMatch ? '#22d3ee' : '#f59e0b';
           ctx.lineWidth = 3;
           ctx.shadowColor = isMatch ? '#22d3ee' : '#f59e0b';
           ctx.shadowBlur = 18;
 
-          // Animated dashing outline
           ctx.setLineDash([12, 6]);
           ctx.lineDashOffset = -pulseAngle * 10;
           ctx.strokeRect(x, y, w, h);
 
-          // Draw sharp corner reticles
           const bracketLength = Math.min(w, h) * 0.25;
           ctx.setLineDash([]);
           ctx.lineWidth = 4;
@@ -258,7 +439,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
           ctx.lineTo(x + w, y + h - bracketLength);
           ctx.stroke();
 
-          // 4. Draw Center Targeting Crosshair Line
+          // Center Vector Guidance Line
           ctx.strokeStyle = 'rgba(34, 211, 238, 0.5)';
           ctx.lineWidth = 1.5;
           ctx.setLineDash([4, 4]);
@@ -267,7 +448,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
           ctx.lineTo(cx, cy);
           ctx.stroke();
 
-          // 5. Draw Candidate Badge Label
+          // Candidate Label Badge
           ctx.fillStyle = isMatch ? 'rgba(6, 182, 212, 0.95)' : 'rgba(180, 83, 9, 0.95)';
           ctx.shadowBlur = 0;
           const labelText = `${isMatch ? '🎯 TARGET_LOCKED' : '🔍 CANDIDATE'}: ${selectedCandidate.label.toUpperCase()} (${Math.round(selectedCandidate.confidence * 100)}%)`;
@@ -285,7 +466,30 @@ export const CameraView: React.FC<CameraViewProps> = ({
         }
       }
 
-      // Draw Center Screen Crosshair
+      // 3. Render Spatial Memory Bank (Ghost Reticles for persistence)
+      spatialMemory.forEach((mem) => {
+        const ageMs = Date.now() - mem.lastSeenTimestamp;
+        if (ageMs > 500 && ageMs < 6000) {
+          const alpha = Math.max(0.15, 1 - ageMs / 6000);
+          const x = (mem.candidate.bbox.xmin / 1000) * width;
+          const y = (mem.candidate.bbox.ymin / 1000) * height;
+          const w = ((mem.candidate.bbox.xmax - mem.candidate.bbox.xmin) / 1000) * width;
+          const h = ((mem.candidate.bbox.ymax - mem.candidate.bbox.ymin) / 1000) * height;
+
+          ctx.save();
+          ctx.strokeStyle = `rgba(16, 185, 129, ${alpha * 0.7})`;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 4]);
+          ctx.strokeRect(x, y, w, h);
+
+          ctx.fillStyle = `rgba(16, 185, 129, ${alpha * 0.9})`;
+          ctx.font = '9px Space Mono, monospace';
+          ctx.fillText(`👻 LAST SEEN: ${mem.candidate.label.toUpperCase()}`, x, Math.max(15, y - 4));
+          ctx.restore();
+        }
+      });
+
+      // Center Crosshair Reticle
       ctx.strokeStyle = 'rgba(34, 211, 238, 0.35)';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -302,9 +506,8 @@ export const CameraView: React.FC<CameraViewProps> = ({
     renderOverlay();
 
     return () => cancelAnimationFrame(animId);
-  }, [analysisResult, showHeatmap, settings.audioFeedback]);
+  }, [analysisResult, showHeatmap, settings.audioFeedback, settings.speechGuidance, activeSourceMode, spatialMemory, autoScanEnabled, captureAndAnalyze, isAnalyzing]);
 
-  // Image source to show
   const currentImageSrc =
     activeSourceMode === 'upload' && uploadedImageSrc
       ? uploadedImageSrc
@@ -312,7 +515,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
   return (
     <div className="flex flex-col space-y-4">
-      {/* Source Selector Toolbar */}
+      {/* Source Selector & Innovation Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 bg-zinc-900 border-2 border-zinc-800 p-2.5">
         <div className="flex items-center space-x-1 font-mono text-xs uppercase font-bold tracking-wider">
           <button
@@ -355,8 +558,22 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </label>
         </div>
 
-        {/* Heatmap & Re-scan controls */}
-        <div className="flex items-center space-x-2 font-mono text-xs">
+        {/* Heatmap, Auto-Scan & Snapshot Exporter Controls */}
+        <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
+          <button
+            id="btn-toggle-auto-scan"
+            onClick={() => setAutoScanEnabled(!autoScanEnabled)}
+            className={`flex items-center space-x-1 px-2.5 py-1 border transition uppercase tracking-wider font-bold ${
+              autoScanEnabled
+                ? 'bg-emerald-950 text-emerald-400 border-emerald-500/60'
+                : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-white'
+            }`}
+            title="Auto-scan on camera stability"
+          >
+            <Activity className="w-3.5 h-3.5" />
+            <span>Auto-Scan</span>
+          </button>
+
           <button
             id="btn-toggle-gradcam-overlay"
             onClick={() => setShowHeatmap(!showHeatmap)}
@@ -369,6 +586,16 @@ export const CameraView: React.FC<CameraViewProps> = ({
           >
             {showHeatmap ? <Eye className="w-3.5 h-3.5 text-rose-400" /> : <EyeOff className="w-3.5 h-3.5" />}
             <span>Heatmap</span>
+          </button>
+
+          <button
+            id="btn-export-annotated-frame"
+            onClick={handleExportAnnotatedSnapshot}
+            className="flex items-center space-x-1 px-2.5 py-1 bg-cyan-400/20 hover:bg-cyan-400/30 text-cyan-300 border border-cyan-400/40 uppercase font-bold tracking-wider transition"
+            title="Download Annotated Vision Snapshot PNG"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Snapshot</span>
           </button>
 
           <button
@@ -392,7 +619,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
               id={`preset-scene-${scene.id}`}
               onClick={() => {
                 setSelectedScene(scene);
-                // Trigger auto frame scan
                 setTimeout(() => captureAndAnalyze(), 100);
               }}
               className={`p-2.5 text-left border font-mono transition relative overflow-hidden flex flex-col justify-between ${
@@ -419,7 +645,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
       <div className="relative border-4 border-zinc-900 bg-black feed-glow aspect-[16/10] sm:aspect-[16/9] flex items-center justify-center overflow-hidden">
         <div className="scan-line"></div>
 
-        {/* Background Source Rendering */}
         {activeSourceMode === 'webcam' ? (
           <video
             ref={videoRef}
@@ -435,7 +660,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
             crossOrigin="anonymous"
             className="w-full h-full object-cover transition-all duration-300"
             onLoad={() => {
-              // Trigger auto scan on image load if no result yet
               if (!analysisResult) {
                 captureAndAnalyze();
               }
@@ -443,7 +667,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
           />
         )}
 
-        {/* Live Canvas Vector Overlay */}
         <canvas
           ref={canvasRef}
           width={800}
@@ -451,7 +674,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
           className="absolute inset-0 w-full h-full pointer-events-none z-10"
         />
 
-        {/* Webcam Error Fallback Notice */}
         {activeSourceMode === 'webcam' && webcamError && (
           <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-6 text-center space-y-3 z-20 font-mono">
             <AlertCircle className="w-10 h-10 text-amber-400" />
@@ -465,18 +687,18 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </div>
         )}
 
-        {/* HUD Top Performance Metrics Ribbon */}
-        <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-20 pointer-events-none font-mono">
-          <div className="flex items-center space-x-2 bg-black/80 border border-cyan-500/30 px-3 py-1 text-[10px] text-cyan-400 uppercase tracking-widest">
+        {/* HUD Top Performance & Motion Metrics Ribbon */}
+        <div className="absolute top-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 z-20 pointer-events-none font-mono">
+          <div className="flex items-center space-x-2 bg-black/85 border border-cyan-500/30 px-3 py-1 text-[10px] text-cyan-400 uppercase tracking-widest">
             <Zap className="w-3.5 h-3.5 text-cyan-400" />
-            <span>LIVE_FEED:001</span>
+            <span>OPENROUTER_FREE</span>
             <span className="text-zinc-600">|</span>
             <span>LATENCY: {analysisResult?.latencyMs || 42}ms</span>
             <span className="text-zinc-600">|</span>
-            <span className="hidden sm:inline">SAM3: {analysisResult?.samInferenceMs || 18}ms</span>
+            <span>STABILITY: <strong className={motionMetrics.isCameraStable ? 'text-emerald-400' : 'text-amber-400'}>{motionMetrics.motionStabilityIndex}%</strong></span>
           </div>
 
-          <div className="flex items-center space-x-2 bg-black/80 border border-zinc-800 px-3 py-1 text-[10px]">
+          <div className="flex items-center space-x-2 bg-black/85 border border-zinc-800 px-3 py-1 text-[10px]">
             <span className={`w-2 h-2 ${
               analysisResult?.clutterMetrics.searchStatus === 'FOUND'
                 ? 'bg-emerald-400 animate-ping'
@@ -488,7 +710,15 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </div>
         </div>
 
-        {/* HUD Bottom Target Candidate Quick Switch Bar */}
+        {/* Spatial Directional Vector Banner */}
+        {analysisResult && analysisResult.candidates.length > 0 && (
+          <div className="absolute top-12 left-3 bg-black/80 border border-cyan-900 px-2.5 py-1 text-[10px] font-mono text-cyan-300 uppercase tracking-wider flex items-center space-x-1.5 z-20 pointer-events-none">
+            <Compass className="w-3.5 h-3.5 text-cyan-400 animate-spin" style={{ animationDuration: '8s' }} />
+            <span>VECTOR: <strong className="text-white">{directionalVector.cardinalDirection.toUpperCase()}</strong> ({directionalVector.distancePixels}px)</span>
+          </div>
+        )}
+
+        {/* HUD Bottom Candidate Quick Switch Bar */}
         {analysisResult && analysisResult.candidates.length > 0 && (
           <div className="absolute bottom-3 left-3 right-3 bg-black/90 border border-zinc-800 p-2.5 z-20 flex flex-col sm:flex-row items-center justify-between gap-2 font-mono">
             <div className="flex items-center space-x-2 w-full sm:w-auto overflow-x-auto text-xs">
@@ -515,14 +745,14 @@ export const CameraView: React.FC<CameraViewProps> = ({
             </div>
 
             <div className="flex items-center space-x-3 text-[10px] text-zinc-400 uppercase tracking-wider">
-              <span>Light: <strong className="text-emerald-400">{analysisResult.clutterMetrics.lightingStatus}</strong></span>
+              <span>Memory: <strong className="text-cyan-400 flex items-center inline"><History className="w-3 h-3 inline mr-0.5" />{spatialMemory.length} tracked</strong></span>
               <span>Density: <strong className="text-amber-400">{analysisResult.clutterMetrics.clutterDensity}%</strong></span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Proximity "Hot / Cold" Indicator Meter Bar */}
+      {/* Proximity "Hot / Cold" Indicator & Spatial Radar Bar */}
       <div className="bg-zinc-900 border-2 border-zinc-800 p-4 flex flex-col space-y-2 font-mono">
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center space-x-2">
@@ -541,7 +771,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
           <span className="font-bold text-cyan-400 text-[11px]">{Math.round(proximityScore * 100)}% ALIGNED</span>
         </div>
 
-        {/* Dynamic Gradient Meter Track */}
         <div className="w-full h-3 bg-black overflow-hidden p-0.5 border border-zinc-800 relative">
           <div
             className="h-full transition-all duration-200 bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]"

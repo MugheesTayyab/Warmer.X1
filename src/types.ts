@@ -137,10 +137,36 @@ export interface BackendHealthStatus {
   status: 'ok' | 'degraded' | 'error';
   service: string;
   timestamp: string;
+  openRouterApiKeyConfigured?: boolean;
   geminiApiKeyConfigured: boolean;
   activeModel: string;
   sam3Status: string;
   latencyBenchmarkMs: number;
   uptimeSeconds: number;
 }
+
+export interface SpatialMemoryItem {
+  id: string;
+  candidate: DetectionCandidate;
+  lastSeenTimestamp: number;
+  screenCoordinates: { x: number; y: number };
+  quadrant: 'Top-Left' | 'Top-Right' | 'Bottom-Left' | 'Bottom-Right' | 'Center';
+  decayAlpha: number; // 0 to 1 opacity decay over time
+  confidenceHistory: number[];
+}
+
+export interface MotionMetrics {
+  motionStabilityIndex: number; // 0-100% stability score
+  isCameraStable: boolean;
+  motionBlurDetected: boolean;
+  suggestedAction: 'SWEEP_FASTER' | 'HOLD_STEADY' | 'SCANNING_STABLE_FRAME';
+}
+
+export interface DirectionalVector {
+  cardinalDirection: 'Left' | 'Right' | 'Up' | 'Down' | 'Centered';
+  angleDegrees: number;
+  distancePixels: number;
+  voicePrompt: string;
+}
+
 

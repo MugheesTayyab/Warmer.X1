@@ -1,9 +1,10 @@
-// Web Audio API Synthesizer for Warmer "Hot/Cold" Proximity Guidance
+// Web Audio API Synthesizer & Web Speech Engine for Warmer "Hot/Cold" Proximity Guidance
 
 class AudioEngine {
   private ctx: AudioContext | null = null;
   private isMuted: boolean = false;
   private lastChimeTime: number = 0;
+  private lastSpeechTime: number = 0;
 
   private initCtx() {
     if (!this.ctx && typeof window !== 'undefined') {
@@ -92,14 +93,31 @@ class AudioEngine {
   }
 
   /**
+   * Spoken audio navigation guidance with throttle protection
+   */
+  public speakDirectionalGuidance(cardinalDirection: string, proximityPercent: number) {
+    if (this.isMuted) return;
+    const now = Date.now();
+    if (now - this.lastSpeechTime < 4500) return; // Throttle speech announcements
+    this.lastSpeechTime = now;
+
+    let text = `Target in ${cardinalDirection}. ${proximityPercent}% aligned.`;
+    if (proximityPercent > 85) {
+      text = `Target locked in center.`;
+    }
+
+    this.speak(text);
+  }
+
+  /**
    * Text To Speech for accessibility guidance
    */
   public speak(text: string) {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel(); // Stop ongoing speech
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.1;
-    utterance.pitch = 1.0;
+    utterance.rate = 1.15;
+    utterance.pitch = 1.05;
     window.speechSynthesis.speak(utterance);
   }
 }

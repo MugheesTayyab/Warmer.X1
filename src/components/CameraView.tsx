@@ -8,7 +8,6 @@ import {
   Eye,
   EyeOff,
   Crosshair,
-  Volume2,
   Sparkles,
   Download,
   Activity,
@@ -61,10 +60,9 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [isWebcamActive, setIsWebcamActive] = useState<boolean>(false);
   const [webcamError, setWebcamError] = useState<string | null>(null);
 
-  // New Innovation States
   const [spatialMemory, setSpatialMemory] = useState<SpatialMemoryItem[]>([]);
   const [motionMetrics, setMotionMetrics] = useState<MotionMetrics>({
-    motionStabilityIndex: 92,
+    motionStabilityIndex: 94,
     isCameraStable: true,
     motionBlurDetected: false,
     suggestedAction: 'SCANNING_STABLE_FRAME',
@@ -77,12 +75,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
   });
   const [autoScanEnabled, setAutoScanEnabled] = useState<boolean>(true);
 
-  // Sync heatmap state with system settings
   useEffect(() => {
     setShowHeatmap(settings.explainabilityMode);
   }, [settings.explainabilityMode]);
 
-  // Handle Webcam Start/Stop
   const startWebcam = useCallback(async () => {
     setWebcamError(null);
     try {
@@ -96,7 +92,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
       }
     } catch (err: any) {
       console.warn('Webcam access error:', err);
-      setWebcamError('Camera unavailable or permission denied. Switch to Clutter Presets or File Upload.');
+      setWebcamError('Camera unavailable or permission denied. Switch to Clutter Presets or Upload.');
       setIsWebcamActive(false);
     }
   }, []);
@@ -119,7 +115,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
     return () => stopWebcam();
   }, [activeSourceMode, startWebcam, stopWebcam]);
 
-  // Update Spatial Memory Bank whenever new analysis arrives
   useEffect(() => {
     if (!analysisResult || analysisResult.candidates.length === 0) return;
 
@@ -161,12 +156,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
         }
       });
 
-      // Filter expired memory entries (> 8 seconds old)
       return updated.filter((item) => now - item.lastSeenTimestamp < 8000);
     });
   }, [analysisResult]);
 
-  // Handle File Upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -181,7 +174,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
     }
   };
 
-  // Convert current view image to Base64 and trigger frame analysis
   const captureAndAnalyze = useCallback(() => {
     if (activeSourceMode === 'webcam' && videoRef.current && isWebcamActive) {
       const v = videoRef.current;
@@ -210,7 +202,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
     }
   }, [activeSourceMode, isWebcamActive, uploadedImageSrc, onAnalyzeFrame]);
 
-  // Export Annotated Snapshot with Reticles, Labels, and Watermark
   const handleExportAnnotatedSnapshot = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -221,38 +212,33 @@ export const CameraView: React.FC<CameraViewProps> = ({
     const ctx = exportCanvas.getContext('2d');
     if (!ctx) return;
 
-    // 1. Draw source image
     if (activeSourceMode === 'webcam' && videoRef.current) {
       ctx.drawImage(videoRef.current, 0, 0, exportCanvas.width, exportCanvas.height);
     } else if (imageRef.current) {
       ctx.drawImage(imageRef.current, 0, 0, exportCanvas.width, exportCanvas.height);
     }
 
-    // 2. Draw overlay canvas contents
     ctx.drawImage(canvas, 0, 0);
 
-    // 3. Burn-in watermark & timestamp header
-    ctx.fillStyle = 'rgba(5, 5, 5, 0.85)';
-    ctx.fillRect(10, 10, 360, 48);
-    ctx.strokeStyle = '#22d3ee';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(10, 10, 360, 48);
+    ctx.fillStyle = 'rgba(9, 9, 11, 0.85)';
+    ctx.fillRect(16, 16, 360, 48);
+    ctx.strokeStyle = '#06b6d4';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(16, 16, 360, 48);
 
-    ctx.fillStyle = '#22d3ee';
-    ctx.font = 'bold 12px Space Mono, monospace';
-    ctx.fillText('WARMER AI // ANNOTATED VISION CAPTURE', 20, 30);
+    ctx.fillStyle = '#06b6d4';
+    ctx.font = 'bold 12px Inter, sans-serif';
+    ctx.fillText('WARMER AI // ANNOTATED CAPTURE', 28, 36);
     ctx.fillStyle = '#a1a1aa';
-    ctx.font = '10px Space Mono, monospace';
-    ctx.fillText(`TIMESTAMP: ${new Date().toLocaleString()} | ACCURACY GRADE: 96%`, 20, 46);
+    ctx.font = '10px Inter, sans-serif';
+    ctx.fillText(`TIMESTAMP: ${new Date().toLocaleString()} | ACCURACY: 96%`, 28, 52);
 
-    // Download PNG
     const link = document.createElement('a');
     link.download = `warmer-cv-capture-${Date.now()}.png`;
     link.href = exportCanvas.toDataURL('image/png');
     link.click();
   };
 
-  // Canvas Drawing, Temporal Motion Stability, & Vector Rendering Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -271,7 +257,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
       ctx.clearRect(0, 0, width, height);
 
-      // 1. Compute Motion Stability Index from frame pixels
+      // Frame Motion Stability Calculation
       if (frameCounter % 6 === 0 && activeSourceMode === 'webcam' && videoRef.current) {
         try {
           const off = document.createElement('canvas');
@@ -288,7 +274,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
               }
               const avgDiff = diff / (currData.length / 16);
               const stability = Math.max(10, Math.min(99, Math.round(100 - avgDiff * 2.2)));
-              
+
               setMotionMetrics({
                 motionStabilityIndex: stability,
                 isCameraStable: stability > 78,
@@ -296,7 +282,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
                 suggestedAction: stability > 82 ? 'SCANNING_STABLE_FRAME' : stability < 55 ? 'HOLD_STEADY' : 'SWEEP_FASTER',
               });
 
-              // Auto-scan trigger when stability > 85% for hands-free scanning
               if (autoScanEnabled && stability > 85 && !isAnalyzing && frameCounter % 48 === 0) {
                 captureAndAnalyze();
               }
@@ -306,7 +291,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
         } catch (e) {}
       }
 
-      // 2. Draw Active Candidate Overlays & Reticles
+      // Render Active Candidate Detections
       if (analysisResult && analysisResult.candidates.length > 0) {
         const selectedCandidate =
           analysisResult.selectedCandidateIndex >= 0
@@ -330,7 +315,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
           const prox = Math.max(0, 1 - distToCenter / maxDist);
           setProximityScore(prox);
 
-          // Directional Vector Math
           const dx = cx - screenCx;
           const dy = cy - screenCy;
           let cardinal: DirectionalVector['cardinalDirection'] = 'Centered';
@@ -348,7 +332,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
             voicePrompt: prox > 0.85 ? 'Target Centered' : `Move ${cardinal}`,
           });
 
-          // Trigger Audio Proximity Tone & Spoken Navigation
           if (settings.audioFeedback && isMatch) {
             audioEngine.playProximityTone(prox);
           }
@@ -356,7 +339,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
             audioEngine.speakDirectionalGuidance(cardinal, Math.round(prox * 100));
           }
 
-          // Draw Heatmap Grid if Explainability is active
           if (showHeatmap && analysisResult.explainability?.heatmapMatrix) {
             const matrix = analysisResult.explainability.heatmapMatrix;
             const rows = matrix.length;
@@ -369,7 +351,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
                 const val = matrix[r][c];
                 if (val > 0.15) {
                   const hue = (1 - val) * 200;
-                  ctx.fillStyle = `hsla(${hue}, 100%, 50%, ${val * 0.45})`;
+                  ctx.fillStyle = `hsla(${hue}, 100%, 50%, ${val * 0.4})`;
                   ctx.fillRect(c * cellW, r * cellH, cellW, cellH);
                 }
               }
@@ -378,15 +360,15 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
           // SAM 3 Segment Mask Glowing Aura
           ctx.save();
-          const auraRadius = Math.max(w, h) * 0.7 + Math.sin(pulseAngle) * 8;
-          const radialGrad = ctx.createRadialGradient(cx, cy, 10, cx, cy, auraRadius);
-          
+          const auraRadius = Math.max(w, h) * 0.65 + Math.sin(pulseAngle) * 6;
+          const radialGrad = ctx.createRadialGradient(cx, cy, 8, cx, cy, auraRadius);
+
           if (isMatch) {
-            radialGrad.addColorStop(0, 'rgba(34, 211, 238, 0.75)');
-            radialGrad.addColorStop(0.6, 'rgba(16, 185, 129, 0.4)');
-            radialGrad.addColorStop(1, 'rgba(34, 211, 238, 0)');
+            radialGrad.addColorStop(0, 'rgba(6, 182, 212, 0.7)');
+            radialGrad.addColorStop(0.6, 'rgba(16, 185, 129, 0.35)');
+            radialGrad.addColorStop(1, 'rgba(6, 182, 212, 0)');
           } else {
-            radialGrad.addColorStop(0, 'rgba(245, 158, 11, 0.5)');
+            radialGrad.addColorStop(0, 'rgba(245, 158, 11, 0.45)');
             radialGrad.addColorStop(1, 'rgba(245, 158, 11, 0)');
           }
 
@@ -398,18 +380,18 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
           // Reticle Bounding Box & Corner Brackets
           ctx.save();
-          ctx.strokeStyle = isMatch ? '#22d3ee' : '#f59e0b';
-          ctx.lineWidth = 3;
-          ctx.shadowColor = isMatch ? '#22d3ee' : '#f59e0b';
-          ctx.shadowBlur = 18;
+          ctx.strokeStyle = isMatch ? '#06b6d4' : '#f59e0b';
+          ctx.lineWidth = 2.5;
+          ctx.shadowColor = isMatch ? '#06b6d4' : '#f59e0b';
+          ctx.shadowBlur = 14;
 
-          ctx.setLineDash([12, 6]);
-          ctx.lineDashOffset = -pulseAngle * 10;
+          ctx.setLineDash([10, 5]);
+          ctx.lineDashOffset = -pulseAngle * 8;
           ctx.strokeRect(x, y, w, h);
 
-          const bracketLength = Math.min(w, h) * 0.25;
+          const bracketLength = Math.min(w, h) * 0.22;
           ctx.setLineDash([]);
-          ctx.lineWidth = 4;
+          ctx.lineWidth = 3.5;
 
           // Top Left
           ctx.beginPath();
@@ -439,34 +421,25 @@ export const CameraView: React.FC<CameraViewProps> = ({
           ctx.lineTo(x + w, y + h - bracketLength);
           ctx.stroke();
 
-          // Center Vector Guidance Line
-          ctx.strokeStyle = 'rgba(34, 211, 238, 0.5)';
-          ctx.lineWidth = 1.5;
-          ctx.setLineDash([4, 4]);
-          ctx.beginPath();
-          ctx.moveTo(screenCx, screenCy);
-          ctx.lineTo(cx, cy);
-          ctx.stroke();
-
-          // Candidate Label Badge
-          ctx.fillStyle = isMatch ? 'rgba(6, 182, 212, 0.95)' : 'rgba(180, 83, 9, 0.95)';
+          // Target Label Badge
+          ctx.fillStyle = isMatch ? 'rgba(6, 182, 212, 0.95)' : 'rgba(245, 158, 11, 0.95)';
           ctx.shadowBlur = 0;
-          const labelText = `${isMatch ? '🎯 TARGET_LOCKED' : '🔍 CANDIDATE'}: ${selectedCandidate.label.toUpperCase()} (${Math.round(selectedCandidate.confidence * 100)}%)`;
-          ctx.font = 'bold 11px Space Mono, monospace';
+          const labelText = `${isMatch ? '🎯 TARGET' : '🔍 CANDIDATE'}: ${selectedCandidate.label.toUpperCase()} (${Math.round(selectedCandidate.confidence * 100)}%)`;
+          ctx.font = 'bold 11px Inter, sans-serif';
           const textWidth = ctx.measureText(labelText).width;
 
-          const badgeX = Math.max(10, Math.min(x, width - textWidth - 20));
-          const badgeY = Math.max(25, y - 10);
+          const badgeX = Math.max(12, Math.min(x, width - textWidth - 20));
+          const badgeY = Math.max(26, y - 10);
 
-          ctx.fillRect(badgeX - 4, badgeY - 16, textWidth + 12, 22);
-          ctx.fillStyle = '#050505';
+          ctx.fillRect(badgeX - 6, badgeY - 16, textWidth + 12, 22);
+          ctx.fillStyle = '#09090b';
           ctx.fillText(labelText, badgeX, badgeY - 1);
 
           ctx.restore();
         }
       }
 
-      // 3. Render Spatial Memory Bank (Ghost Reticles for persistence)
+      // Render Spatial Memory Bank (Ghost Reticles)
       spatialMemory.forEach((mem) => {
         const ageMs = Date.now() - mem.lastSeenTimestamp;
         if (ageMs > 500 && ageMs < 6000) {
@@ -477,27 +450,27 @@ export const CameraView: React.FC<CameraViewProps> = ({
           const h = ((mem.candidate.bbox.ymax - mem.candidate.bbox.ymin) / 1000) * height;
 
           ctx.save();
-          ctx.strokeStyle = `rgba(16, 185, 129, ${alpha * 0.7})`;
+          ctx.strokeStyle = `rgba(16, 185, 129, ${alpha * 0.6})`;
           ctx.lineWidth = 1.5;
           ctx.setLineDash([4, 4]);
           ctx.strokeRect(x, y, w, h);
 
-          ctx.fillStyle = `rgba(16, 185, 129, ${alpha * 0.9})`;
-          ctx.font = '9px Space Mono, monospace';
-          ctx.fillText(`👻 LAST SEEN: ${mem.candidate.label.toUpperCase()}`, x, Math.max(15, y - 4));
+          ctx.fillStyle = `rgba(16, 185, 129, ${alpha * 0.85})`;
+          ctx.font = '9px Inter, sans-serif';
+          ctx.fillText(`👻 LAST SEEN: ${mem.candidate.label.toUpperCase()}`, x, Math.max(14, y - 4));
           ctx.restore();
         }
       });
 
-      // Center Crosshair Reticle
-      ctx.strokeStyle = 'rgba(34, 211, 238, 0.35)';
+      // Center Target Reticle
+      ctx.strokeStyle = 'rgba(6, 182, 212, 0.3)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(width / 2, height / 2, 10, 0, Math.PI * 2);
-      ctx.moveTo(width / 2 - 16, height / 2);
-      ctx.lineTo(width / 2 + 16, height / 2);
-      ctx.moveTo(width / 2, height / 2 - 16);
-      ctx.lineTo(width / 2, height / 2 + 16);
+      ctx.arc(width / 2, height / 2, 8, 0, Math.PI * 2);
+      ctx.moveTo(width / 2 - 14, height / 2);
+      ctx.lineTo(width / 2 + 14, height / 2);
+      ctx.moveTo(width / 2, height / 2 - 14);
+      ctx.lineTo(width / 2, height / 2 + 14);
       ctx.stroke();
 
       animId = requestAnimationFrame(renderOverlay);
@@ -515,16 +488,16 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
   return (
     <div className="flex flex-col space-y-4">
-      {/* Source Selector & Innovation Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-zinc-900 border-2 border-zinc-800 p-2.5">
-        <div className="flex items-center space-x-1 font-mono text-xs uppercase font-bold tracking-wider">
+      {/* Source Selector Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-2.5 backdrop-blur-md">
+        <div className="flex items-center space-x-1.5 font-mono text-xs">
           <button
             id="source-mode-preset"
             onClick={() => setActiveSourceMode('preset')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 transition ${
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-medium transition ${
               activeSourceMode === 'preset'
-                ? 'bg-cyan-400 text-black shadow-[0_0_10px_rgba(34,211,238,0.3)]'
-                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                ? 'bg-cyan-400 text-black font-bold shadow-md shadow-cyan-400/20'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
             }`}
           >
             <ImageIcon className="w-3.5 h-3.5" />
@@ -534,10 +507,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
           <button
             id="source-mode-webcam"
             onClick={() => setActiveSourceMode('webcam')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 transition ${
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-medium transition ${
               activeSourceMode === 'webcam'
-                ? 'bg-cyan-400 text-black shadow-[0_0_10px_rgba(34,211,238,0.3)]'
-                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                ? 'bg-cyan-400 text-black font-bold shadow-md shadow-cyan-400/20'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
             }`}
           >
             <Camera className="w-3.5 h-3.5" />
@@ -546,10 +519,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
           <label
             id="source-mode-upload"
-            className={`cursor-pointer flex items-center space-x-1.5 px-3 py-1.5 transition ${
+            className={`cursor-pointer flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-medium transition ${
               activeSourceMode === 'upload'
-                ? 'bg-cyan-400 text-black shadow-[0_0_10px_rgba(34,211,238,0.3)]'
-                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                ? 'bg-cyan-400 text-black font-bold shadow-md shadow-cyan-400/20'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
             }`}
           >
             <Upload className="w-3.5 h-3.5" />
@@ -558,14 +531,14 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </label>
         </div>
 
-        {/* Heatmap, Auto-Scan & Snapshot Exporter Controls */}
+        {/* Feature Toggles & Controls */}
         <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
           <button
             id="btn-toggle-auto-scan"
             onClick={() => setAutoScanEnabled(!autoScanEnabled)}
-            className={`flex items-center space-x-1 px-2.5 py-1 border transition uppercase tracking-wider font-bold ${
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border transition font-medium ${
               autoScanEnabled
-                ? 'bg-emerald-950 text-emerald-400 border-emerald-500/60'
+                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50'
                 : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-white'
             }`}
             title="Auto-scan on camera stability"
@@ -577,12 +550,12 @@ export const CameraView: React.FC<CameraViewProps> = ({
           <button
             id="btn-toggle-gradcam-overlay"
             onClick={() => setShowHeatmap(!showHeatmap)}
-            className={`flex items-center space-x-1.5 px-2.5 py-1 border transition uppercase tracking-wider font-bold ${
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border transition font-medium ${
               showHeatmap
-                ? 'bg-rose-950 text-rose-300 border-rose-500/60'
+                ? 'bg-rose-950/80 text-rose-300 border-rose-500/50'
                 : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-white'
             }`}
-            title="Toggle Grad-CAM Attention Heatmap Layer"
+            title="Toggle Grad-CAM Attention Heatmap"
           >
             {showHeatmap ? <Eye className="w-3.5 h-3.5 text-rose-400" /> : <EyeOff className="w-3.5 h-3.5" />}
             <span>Heatmap</span>
@@ -591,8 +564,8 @@ export const CameraView: React.FC<CameraViewProps> = ({
           <button
             id="btn-export-annotated-frame"
             onClick={handleExportAnnotatedSnapshot}
-            className="flex items-center space-x-1 px-2.5 py-1 bg-cyan-400/20 hover:bg-cyan-400/30 text-cyan-300 border border-cyan-400/40 uppercase font-bold tracking-wider transition"
-            title="Download Annotated Vision Snapshot PNG"
+            className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/60 text-cyan-300 border border-cyan-500/40 font-medium transition"
+            title="Download Vision Snapshot PNG"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Snapshot</span>
@@ -602,17 +575,17 @@ export const CameraView: React.FC<CameraViewProps> = ({
             id="btn-rescan-current-frame"
             onClick={captureAndAnalyze}
             disabled={isAnalyzing}
-            className="p-1.5 bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white transition active:scale-95"
-            title="Re-scan Current View Frame"
+            className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white transition active:scale-95"
+            title="Re-scan View Frame"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isAnalyzing ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* Clutter Preset Selector Pills */}
+      {/* Clutter Preset Selector */}
       {activeSourceMode === 'preset' && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
           {SAMPLE_SCENES.map((scene) => (
             <button
               key={scene.id}
@@ -621,17 +594,17 @@ export const CameraView: React.FC<CameraViewProps> = ({
                 setSelectedScene(scene);
                 setTimeout(() => captureAndAnalyze(), 100);
               }}
-              className={`p-2.5 text-left border font-mono transition relative overflow-hidden flex flex-col justify-between ${
+              className={`p-3 text-left rounded-2xl border transition relative flex flex-col justify-between ${
                 selectedScene.id === scene.id
-                  ? 'bg-zinc-900 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.2)]'
-                  : 'bg-zinc-950 border-zinc-800 hover:bg-zinc-900 hover:border-zinc-700'
+                  ? 'bg-zinc-900/90 border-cyan-400/80 shadow-lg shadow-cyan-400/10'
+                  : 'bg-zinc-950/60 border-zinc-800/80 hover:bg-zinc-900/50'
               }`}
             >
               <div>
-                <p className="text-xs font-bold text-white uppercase line-clamp-1">{scene.title}</p>
-                <p className="text-[10px] text-zinc-500 uppercase line-clamp-1">{scene.category}</p>
+                <p className="text-xs font-semibold text-white line-clamp-1">{scene.title}</p>
+                <p className="text-[10px] text-zinc-500 line-clamp-1 mt-0.5">{scene.category}</p>
               </div>
-              <span className={`mt-1.5 inline-block text-[9px] px-1.5 py-0.5 font-bold uppercase w-fit ${
+              <span className={`mt-2 text-[9px] px-2 py-0.5 rounded-full font-bold uppercase w-fit ${
                 scene.difficulty === 'Extreme Clutter' ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-emerald-950 text-emerald-400 border border-emerald-800'
               }`}>
                 {scene.difficulty}
@@ -641,10 +614,8 @@ export const CameraView: React.FC<CameraViewProps> = ({
         </div>
       )}
 
-      {/* Primary Video / Image Canvas Viewing Stage */}
-      <div className="relative border-4 border-zinc-900 bg-black feed-glow aspect-[16/10] sm:aspect-[16/9] flex items-center justify-center overflow-hidden">
-        <div className="scan-line"></div>
-
+      {/* Video & Canvas Stage Container */}
+      <div className="relative rounded-2xl border border-zinc-800/80 bg-black aspect-[16/10] sm:aspect-[16/9] flex items-center justify-center overflow-hidden shadow-2xl">
         {activeSourceMode === 'webcam' ? (
           <video
             ref={videoRef}
@@ -676,53 +647,53 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
         {activeSourceMode === 'webcam' && webcamError && (
           <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-6 text-center space-y-3 z-20 font-mono">
-            <AlertCircle className="w-10 h-10 text-amber-400" />
-            <p className="text-xs text-zinc-200 max-w-md uppercase">{webcamError}</p>
+            <AlertCircle className="w-9 h-9 text-amber-400" />
+            <p className="text-xs text-zinc-200 max-w-md">{webcamError}</p>
             <button
               onClick={() => setActiveSourceMode('preset')}
-              className="px-4 py-2 bg-cyan-400 text-black font-extrabold text-xs uppercase tracking-widest"
+              className="px-4 py-2 rounded-xl bg-cyan-400 text-black font-bold text-xs uppercase tracking-wider"
             >
               Use Clutter Presets
             </button>
           </div>
         )}
 
-        {/* HUD Top Performance & Motion Metrics Ribbon */}
+        {/* HUD Top Floating Metric Badges */}
         <div className="absolute top-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 z-20 pointer-events-none font-mono">
-          <div className="flex items-center space-x-2 bg-black/85 border border-cyan-500/30 px-3 py-1 text-[10px] text-cyan-400 uppercase tracking-widest">
+          <div className="flex items-center space-x-2 bg-zinc-950/80 backdrop-blur-md border border-zinc-800 px-3 py-1.5 rounded-xl text-[10px] text-cyan-400">
             <Zap className="w-3.5 h-3.5 text-cyan-400" />
-            <span>OPENROUTER_FREE</span>
+            <span>OpenRouter Free</span>
             <span className="text-zinc-600">|</span>
-            <span>LATENCY: {analysisResult?.latencyMs || 42}ms</span>
+            <span>{analysisResult?.latencyMs || 42}ms</span>
             <span className="text-zinc-600">|</span>
-            <span>STABILITY: <strong className={motionMetrics.isCameraStable ? 'text-emerald-400' : 'text-amber-400'}>{motionMetrics.motionStabilityIndex}%</strong></span>
+            <span>Stable: <strong className={motionMetrics.isCameraStable ? 'text-emerald-400' : 'text-amber-400'}>{motionMetrics.motionStabilityIndex}%</strong></span>
           </div>
 
-          <div className="flex items-center space-x-2 bg-black/85 border border-zinc-800 px-3 py-1 text-[10px]">
-            <span className={`w-2 h-2 ${
+          <div className="flex items-center space-x-2 bg-zinc-950/80 backdrop-blur-md border border-zinc-800 px-3 py-1.5 rounded-xl text-[10px]">
+            <span className={`w-2 h-2 rounded-full ${
               analysisResult?.clutterMetrics.searchStatus === 'FOUND'
                 ? 'bg-emerald-400 animate-ping'
                 : 'bg-amber-400 animate-pulse'
             }`} />
-            <span className="font-bold text-white uppercase tracking-widest">
-              STATUS: {analysisResult?.clutterMetrics.searchStatus || 'SCANNING'}
+            <span className="font-semibold text-white">
+              {analysisResult?.clutterMetrics.searchStatus || 'SCANNING'}
             </span>
           </div>
         </div>
 
-        {/* Spatial Directional Vector Banner */}
+        {/* HUD Spatial Directional Badge */}
         {analysisResult && analysisResult.candidates.length > 0 && (
-          <div className="absolute top-12 left-3 bg-black/80 border border-cyan-900 px-2.5 py-1 text-[10px] font-mono text-cyan-300 uppercase tracking-wider flex items-center space-x-1.5 z-20 pointer-events-none">
+          <div className="absolute top-14 left-3 bg-zinc-950/80 backdrop-blur-md border border-cyan-900/60 px-3 py-1 rounded-xl text-[10px] font-mono text-cyan-300 flex items-center space-x-1.5 z-20 pointer-events-none">
             <Compass className="w-3.5 h-3.5 text-cyan-400 animate-spin" style={{ animationDuration: '8s' }} />
-            <span>VECTOR: <strong className="text-white">{directionalVector.cardinalDirection.toUpperCase()}</strong> ({directionalVector.distancePixels}px)</span>
+            <span>Vector: <strong className="text-white">{directionalVector.cardinalDirection}</strong> ({directionalVector.distancePixels}px)</span>
           </div>
         )}
 
-        {/* HUD Bottom Candidate Quick Switch Bar */}
+        {/* HUD Bottom Candidate Quick Bar */}
         {analysisResult && analysisResult.candidates.length > 0 && (
-          <div className="absolute bottom-3 left-3 right-3 bg-black/90 border border-zinc-800 p-2.5 z-20 flex flex-col sm:flex-row items-center justify-between gap-2 font-mono">
+          <div className="absolute bottom-3 left-3 right-3 bg-zinc-950/90 backdrop-blur-md border border-zinc-800/80 rounded-xl p-2 z-20 flex flex-col sm:flex-row items-center justify-between gap-2 font-mono">
             <div className="flex items-center space-x-2 w-full sm:w-auto overflow-x-auto text-xs">
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider whitespace-nowrap">Candidates:</span>
+              <span className="text-[10px] text-zinc-500 font-medium whitespace-nowrap">Detections:</span>
               {analysisResult.candidates.map((cand, idx) => {
                 const isSelected = analysisResult.selectedCandidateIndex === idx;
                 return (
@@ -730,50 +701,50 @@ export const CameraView: React.FC<CameraViewProps> = ({
                     key={cand.id}
                     id={`candidate-pill-${idx}`}
                     onClick={() => onSelectCandidate(idx)}
-                    className={`px-2.5 py-1 text-[10px] uppercase tracking-wider font-bold flex items-center space-x-1.5 transition ${
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold flex items-center space-x-1.5 transition ${
                       isSelected
-                        ? 'bg-cyan-400 text-black shadow-[0_0_10px_rgba(34,211,238,0.4)]'
+                        ? 'bg-cyan-400 text-black shadow-md shadow-cyan-400/20'
                         : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'
                     }`}
                   >
                     <span>#{idx + 1}</span>
-                    <span className="max-w-[120px] truncate">{cand.label}</span>
-                    <span className="opacity-80">({Math.round(cand.confidence * 100)}%)</span>
+                    <span className="max-w-[110px] truncate">{cand.label}</span>
+                    <span className="opacity-75">({Math.round(cand.confidence * 100)}%)</span>
                   </button>
                 );
               })}
             </div>
 
-            <div className="flex items-center space-x-3 text-[10px] text-zinc-400 uppercase tracking-wider">
-              <span>Memory: <strong className="text-cyan-400 flex items-center inline"><History className="w-3 h-3 inline mr-0.5" />{spatialMemory.length} tracked</strong></span>
+            <div className="flex items-center space-x-3 text-[10px] text-zinc-400">
+              <span className="flex items-center"><History className="w-3 h-3 text-cyan-400 mr-1" />{spatialMemory.length} Memory</span>
               <span>Density: <strong className="text-amber-400">{analysisResult.clutterMetrics.clutterDensity}%</strong></span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Proximity "Hot / Cold" Indicator & Spatial Radar Bar */}
-      <div className="bg-zinc-900 border-2 border-zinc-800 p-4 flex flex-col space-y-2 font-mono">
+      {/* Proximity "Hot / Cold" Indicator Bar */}
+      <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-4 flex flex-col space-y-2 font-sans backdrop-blur-md">
         <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 font-mono">
             <Crosshair className="w-4 h-4 text-cyan-400" />
-            <span className="font-bold text-white uppercase tracking-wider text-[11px]">PROXIMITY RADAR:</span>
-            <span className="text-zinc-400 text-[11px] uppercase">
+            <span className="font-bold text-white text-[11px]">Proximity Radar:</span>
+            <span className="text-zinc-300 text-[11px] font-semibold">
               {proximityScore > 0.8
-                ? '🔥 VERY HOT - DIRECT ALIGNMENT'
+                ? '🔥 Direct Alignment'
                 : proximityScore > 0.5
-                ? '⚡ WARMER - CLOSING IN'
+                ? '⚡ Closing In'
                 : proximityScore > 0.2
-                ? '❄️ COLD - SWEEP FIELD'
-                : '🔍 SEARCHING'}
+                ? '❄️ Sweep Field'
+                : '🔍 Searching'}
             </span>
           </div>
-          <span className="font-bold text-cyan-400 text-[11px]">{Math.round(proximityScore * 100)}% ALIGNED</span>
+          <span className="font-mono font-bold text-cyan-400 text-[11px]">{Math.round(proximityScore * 100)}% Aligned</span>
         </div>
 
-        <div className="w-full h-3 bg-black overflow-hidden p-0.5 border border-zinc-800 relative">
+        <div className="w-full h-2.5 bg-zinc-950 rounded-full overflow-hidden p-0.5 border border-zinc-800/80 relative">
           <div
-            className="h-full transition-all duration-200 bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]"
+            className="h-full rounded-full transition-all duration-200 bg-cyan-400 shadow-md shadow-cyan-400/40"
             style={{ width: `${Math.max(4, proximityScore * 100)}%` }}
           />
         </div>

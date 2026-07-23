@@ -26,14 +26,13 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
   const [isParsingQuery, setIsParsingQuery] = useState(false);
 
   const presets = [
-    { label: 'KEYS_BRASS', text: 'find my brass keys, not my roommate silver keychain' },
-    { label: 'SOCKET_10MM', text: 'find the 10mm socket, not the 12mm' },
-    { label: 'CABLE_USBC', text: 'find the braided USB-C cable with red accents' },
-    { label: 'INHALER_RED', text: 'find my daughter red asthma inhaler in couch cushions' },
-    { label: 'WALLET_LEATHER', text: 'find my black leather wallet under the mail' },
+    { label: 'Brass Keys', text: 'find my brass keys, not my roommate silver keychain' },
+    { label: '10mm Socket', text: 'find the 10mm socket, not the 12mm' },
+    { label: 'USB-C Cable', text: 'find the braided USB-C cable with red accents' },
+    { label: 'Asthma Inhaler', text: 'find my daughter red asthma inhaler in couch cushions' },
+    { label: 'Leather Wallet', text: 'find my black leather wallet under the mail' },
   ];
 
-  // Call /api/parse-query whenever query is submitted or updated
   const triggerQueryParser = async (rawQuery: string) => {
     if (!rawQuery || rawQuery.trim().length < 3) return;
     setIsParsingQuery(true);
@@ -57,7 +56,6 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
     }
   };
 
-  // Speech Recognition setup
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -73,7 +71,7 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
         .map((result: any) => result[0])
         .map((result: any) => result.transcript)
         .join('');
-      
+
       setQuery(transcript);
     };
 
@@ -121,48 +119,40 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
   };
 
   return (
-    <div className="bg-zinc-900 border-2 border-zinc-800 p-4 shadow-2xl relative">
-      <div className="flex items-center justify-between mb-2 border-b border-zinc-800 pb-2">
-        <span className="font-mono text-[10px] text-cyan-400 tracking-[0.3em] font-bold uppercase flex items-center space-x-2">
-          <span className="w-1.5 h-1.5 bg-cyan-400"></span>
-          <span>Target Query Parameter Input</span>
+    <div className="bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-4 md:p-5 shadow-xl backdrop-blur-md space-y-3 font-sans">
+      {/* Input Header Bar */}
+      <div className="flex items-center justify-between font-mono text-[11px] text-zinc-400">
+        <span className="flex items-center space-x-2 font-medium text-cyan-400">
+          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+          <span>Target Object Prompt</span>
         </span>
-        <span className="font-mono text-[10px] text-zinc-500 uppercase flex items-center gap-2">
-          {isParsingQuery && <span className="text-amber-400 animate-pulse">PARSING_SAM3_PROMPT...</span>}
-          <span>NLP_ENCODER // PROMPT_MATRIX</span>
-        </span>
+        <div className="flex items-center space-x-2 text-zinc-500 text-[10px]">
+          {isParsingQuery && <span className="text-amber-400 animate-pulse">Parsing Concept...</span>}
+          <span>SAM 3 Open-Vocabulary</span>
+        </div>
       </div>
 
-      <div className="flex flex-col md:flex-row items-center gap-3">
-        {/* Mic Button */}
+      {/* Main Search Bar & Action Controls */}
+      <div className="flex flex-col sm:flex-row items-center gap-3">
+        {/* Mic Recording Button */}
         <button
           id="btn-voice-recording-mic"
           type="button"
           onClick={toggleMic}
-          className={`relative p-3.5 flex items-center justify-center transition-all border font-mono ${
+          className={`p-3.5 rounded-xl border flex items-center justify-center transition-all ${
             isListening
-              ? 'bg-rose-600 text-white border-rose-400 animate-pulse shadow-[0_0_15px_rgba(225,29,72,0.4)]'
-              : 'bg-zinc-950 text-cyan-400 border-zinc-800 hover:border-cyan-400'
+              ? 'bg-rose-500 text-white border-rose-400 shadow-lg shadow-rose-500/30 animate-pulse'
+              : 'bg-zinc-950 text-cyan-400 border-zinc-800 hover:border-cyan-500/60 hover:bg-zinc-900'
           }`}
-          title={isListening ? 'Click to stop listening' : 'Click to speak search query'}
+          title={isListening ? 'Click to stop listening' : 'Click to speak search prompt'}
         >
-          {isListening ? (
-            <MicOff className="w-5 h-5" />
-          ) : (
-            <Mic className="w-5 h-5" />
-          )}
-          {isListening && (
-            <span className="absolute -top-1 -right-1 flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full bg-rose-400 opacity-75"></span>
-              <span className="relative inline-flex h-3 w-3 bg-rose-500"></span>
-            </span>
-          )}
+          {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
 
-        {/* Main Query Input */}
-        <div className="relative flex-1 w-full font-mono">
+        {/* Text Input Container */}
+        <div className="relative flex-1 w-full">
           <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
-            <Search className="w-4 h-4" />
+            <Search className="w-4.5 h-4.5" />
           </div>
           <input
             id="input-target-query"
@@ -171,21 +161,21 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleTriggerScan()}
             onBlur={() => triggerQueryParser(query)}
-            placeholder="TYPE_QUERY: 'find my brass keys, not my roommate silver keychain'..."
-            className="w-full pl-10 pr-28 py-3 bg-zinc-950 border border-zinc-800 text-cyan-300 placeholder-zinc-600 text-xs focus:outline-none focus:border-cyan-400 font-mono transition"
+            placeholder="Describe what you lost: 'find my brass keys, not my roommate silver keychain'..."
+            className="w-full pl-10 pr-28 py-3.5 bg-zinc-950/90 border border-zinc-800/80 rounded-xl text-cyan-300 placeholder-zinc-500 text-xs focus:outline-none focus:border-cyan-400/80 font-mono transition"
           />
 
-          <div className="absolute inset-y-0 right-1.5 flex items-center">
+          <div className="absolute inset-y-0 right-2 flex items-center">
             <button
               id="btn-toggle-negative-constraint"
               type="button"
               onClick={() => setShowNegative(!showNegative)}
-              className={`px-2 py-1 text-[10px] font-mono uppercase tracking-wider border transition ${
+              className={`px-2.5 py-1 text-[10px] rounded-lg font-mono transition ${
                 showNegative || negativeExemplars
-                  ? 'bg-amber-400/20 text-amber-300 border-amber-400'
-                  : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                  ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40'
+                  : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-white'
               }`}
-              title="Add negative exclusion criteria ('not the...')"
+              title="Add negative exclusion criteria"
             >
               <Filter className="w-3 h-3 inline mr-1" />
               Exclusions
@@ -193,37 +183,37 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
           </div>
         </div>
 
-        {/* Trigger Search Button */}
+        {/* Scan CTA Button */}
         <button
           id="btn-trigger-sam-scan"
           type="button"
           onClick={handleTriggerScan}
           disabled={isAnalyzing}
-          className="w-full md:w-auto px-6 py-3 bg-cyan-400 hover:bg-cyan-300 text-black font-extrabold font-mono text-xs uppercase tracking-widest flex items-center justify-center space-x-2 shadow-[0_0_20px_rgba(34,211,238,0.25)] disabled:opacity-50 transition active:scale-95"
+          className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-black font-extrabold font-mono text-xs uppercase tracking-wider flex items-center justify-center space-x-2 shadow-lg shadow-cyan-400/20 disabled:opacity-50 transition active:scale-95"
         >
           {isAnalyzing ? (
             <>
-              <div className="w-4 h-4 border-2 border-black border-t-transparent animate-spin" />
+              <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
               <span>Scanning...</span>
             </>
           ) : (
             <>
               <Sparkles className="w-4 h-4 text-black fill-current" />
-              <span>Scan Clutter</span>
+              <span>Scan Scene</span>
             </>
           )}
         </button>
       </div>
 
-      {/* Parsed Concept Decomposition Badge */}
+      {/* Parsed Concept Badge */}
       {parsedInfo && (
-        <div className="mt-2.5 px-3 py-2 bg-zinc-950/80 border border-cyan-900/60 rounded text-[11px] font-mono text-zinc-300 flex flex-wrap items-center justify-between gap-2">
+        <div className="px-3.5 py-2 rounded-xl bg-zinc-950/80 border border-cyan-900/40 text-[11px] font-mono text-zinc-300 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center space-x-2">
             <Zap className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="text-cyan-400 font-bold uppercase">SAM 3 Concept:</span>
+            <span className="text-cyan-400 font-bold">Concept:</span>
             <span className="text-white font-semibold">"{parsedInfo.targetConcept}"</span>
             {parsedInfo.attributes?.color && (
-              <span className="px-1.5 py-0.5 bg-zinc-800 text-zinc-300 text-[9px] uppercase border border-zinc-700">
+              <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 text-[10px]">
                 {parsedInfo.attributes.color}
               </span>
             )}
@@ -232,19 +222,19 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
         </div>
       )}
 
-      {/* Optional Negative Constraint Input */}
+      {/* Negative Exclusion Input */}
       {(showNegative || negativeExemplars) && (
-        <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center gap-2 text-xs font-mono">
-          <span className="text-amber-400 font-bold uppercase tracking-wider flex items-center text-[10px]">
-            <Filter className="w-3 h-3 mr-1" /> Negative Exclusion:
+        <div className="pt-2 flex items-center gap-2 text-xs font-mono">
+          <span className="text-amber-400 font-medium text-[11px] flex items-center">
+            <Filter className="w-3.5 h-3.5 mr-1" /> Exclude:
           </span>
           <input
             id="input-negative-exemplars"
             type="text"
             value={negativeExemplars}
             onChange={(e) => setNegativeExemplars(e.target.value)}
-            placeholder="EXCLUDE: 'not the 12mm socket', 'not silver fob'"
-            className="flex-1 bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-zinc-200 placeholder-zinc-700 text-xs focus:outline-none focus:border-amber-400"
+            placeholder="e.g., 'not the 12mm socket', 'not silver fob'"
+            className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-zinc-200 placeholder-zinc-600 text-xs focus:outline-none focus:border-amber-400/80"
           />
           {negativeExemplars && (
             <button
@@ -258,17 +248,15 @@ export const VoiceQueryInput: React.FC<VoiceQueryInputProps> = ({
         </div>
       )}
 
-      {/* Preset Quick Suggestions */}
-      <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1 text-xs font-mono no-scrollbar">
-        <span className="text-zinc-500 text-[10px] uppercase tracking-widest font-bold whitespace-nowrap">
-          Quick Prompts:
-        </span>
+      {/* Quick Prompts Bar */}
+      <div className="flex items-center gap-2 overflow-x-auto pt-1 no-scrollbar font-mono text-xs">
+        <span className="text-zinc-500 text-[10px] font-medium whitespace-nowrap">Quick Examples:</span>
         {presets.map((p, idx) => (
           <button
             key={idx}
             id={`preset-prompt-${idx}`}
             onClick={() => handlePresetSelect(p.text)}
-            className="px-2.5 py-1 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 hover:border-cyan-400 text-zinc-300 text-[10px] font-bold tracking-wider uppercase whitespace-nowrap transition"
+            className="px-3 py-1 rounded-full bg-zinc-950 hover:bg-zinc-800/80 border border-zinc-800 text-zinc-300 text-[10px] font-medium transition whitespace-nowrap"
           >
             {p.label}
           </button>

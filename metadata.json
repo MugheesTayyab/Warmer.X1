@@ -1,0 +1,11 @@
+{
+  "name": "Warmer - AI Clutter Finder",
+  "description": "Real-time open-vocabulary object locator in visual clutter using SAM 3 concept segmentation & Gemini vision reasoning.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

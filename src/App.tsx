@@ -107,15 +107,9 @@ export default function App() {
   };
 
   return (
-    <div className={`min-h-screen bg-[#09090b] text-zinc-100 flex flex-col font-sans selection:bg-cyan-400 selection:text-black ${
-      settings.highContrastMode ? 'contrast-125 saturate-150' : ''
+    <div className={`min-h-screen bg-[#0A0A0B] text-[#F5F5F3] flex flex-col font-sans selection:bg-[#F5F5F3] selection:text-[#0A0A0B] ${
+      settings.highContrastMode ? 'contrast-125' : ''
     }`}>
-      {/* Background Ambient Glow Gradients */}
-      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 w-96 h-96 bg-cyan-500/5 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 -right-40 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl" />
-      </div>
-
       {/* Header */}
       <Header
         activeTab={activeTab}
@@ -129,7 +123,7 @@ export default function App() {
       />
 
       {/* Main Content Body */}
-      <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* Voice Query Bar */}
         <VoiceQueryInput
           query={query}
@@ -193,16 +187,16 @@ export default function App() {
         onDownloadZip={handleDownloadZip}
       />
 
-      {/* Minimal Footer */}
-      <footer className="relative z-10 border-t border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md py-4 text-xs text-zinc-500 font-mono">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px]">
-          <span>WARMER // AI COMPUTER VISION ENGINE • SAM 3 + OPENROUTER</span>
+      {/* Quiet Footer */}
+      <footer className="border-t border-[rgba(245,245,243,0.08)] bg-[#0A0A0B] py-4 text-xs text-[#5C5C5A]">
+        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>Warmer · Open-Vocabulary Vision Engine</span>
           <div className="flex items-center space-x-3">
-            <button onClick={handleDownloadZip} className="text-cyan-400 font-semibold hover:underline">
-              Download .ZIP Deliverable
+            <button onClick={handleDownloadZip} className="text-[#A3A3A0] hover:text-[#F5F5F3] transition">
+              Export Project
             </button>
-            <span>•</span>
-            <span className="text-emerald-400 font-semibold">GPU Accelerated</span>
+            <span>·</span>
+            <span>Settings</span>
           </div>
         </div>
       </footer>
